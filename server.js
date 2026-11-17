@@ -5,7 +5,6 @@ const path = require('path');
 const { WebSocketServer } = require('ws');
 
 const PORT = process.env.PORT || 3000;
-const PIN = String(process.env.CONTROL_PIN || '2311');   // change it in the host's settings
 // works whether index.html sits in /public or next to this file
 const PUB = fs.existsSync(path.join(__dirname, 'public', 'index.html')) ? path.join(__dirname, 'public') : __dirname;
 
@@ -38,13 +37,13 @@ wss.on('connection', ws => {
     let m; try { m = JSON.parse(raw); } catch { return; }
     if (m.t === 'hello') {
       ws.role = ['screen', 'remote', 'idle'].includes(m.role) ? m.role : 'idle';
-      if (ws.role === 'remote') ws.send(JSON.stringify({ t: 'auth', ok: String(m.pin || '') === PIN }));
       broadcast();
     } else if (m.t === 'nav' && Number.isInteger(m.i) && m.i >= 0 && m.i < 100) {
-      // the screen itself (keyboard) may move freely; phones need the PIN
-      if (ws.role !== 'screen' && String(m.pin || '') !== PIN) return;
       current = m.i;
       broadcast();
+    } else if (m.t === 'audio' && (m.a === 'play' || m.a === 'stop')) {
+      const msg = JSON.stringify({ t: 'audio', a: m.a });
+      wss.clients.forEach(c => { if (c !== ws && c.readyState === 1 && c.role === 'screen') c.send(msg); });
     }
   });
   ws.on('close', broadcast);
