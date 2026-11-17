@@ -9,6 +9,7 @@ const PORT = process.env.PORT || 3000;
 const PUB = fs.existsSync(path.join(__dirname, 'public', 'index.html')) ? path.join(__dirname, 'public') : __dirname;
 
 let current = 0;                                 // current slide index
+let vol = 0.3;                                   // music/recitation volume (0–1), starts quiet
 
 const server = http.createServer((req, res) => {
   const url = req.url.split('?')[0].split('#')[0];
@@ -25,7 +26,7 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocketServer({ server, path: '/ws' });
 const screensCount = () => [...wss.clients].filter(c => c.role === 'screen' && c.readyState === 1).length;
 const broadcast = () => {
-  const msg = JSON.stringify({ t: 'state', i: current, screens: screensCount() });
+  const msg = JSON.stringify({ t: 'state', i: current, vol, screens: screensCount() });
   wss.clients.forEach(c => { if (c.readyState === 1) c.send(msg); });
 };
 
@@ -41,13 +42,16 @@ wss.on('connection', ws => {
     } else if (m.t === 'nav' && Number.isInteger(m.i) && m.i >= 0 && m.i < 100) {
       current = m.i;
       broadcast();
+    } else if (m.t === 'vol' && typeof m.v === 'number') {
+      vol = Math.max(0.05, Math.min(1, m.v));
+      broadcast();
     } else if (m.t === 'audio' && (m.a === 'play' || m.a === 'stop')) {
       const msg = JSON.stringify({ t: 'audio', a: m.a });
       wss.clients.forEach(c => { if (c !== ws && c.readyState === 1 && c.role === 'screen') c.send(msg); });
     }
   });
   ws.on('close', broadcast);
-  ws.send(JSON.stringify({ t: 'state', i: current, screens: screensCount() }));
+  ws.send(JSON.stringify({ t: 'state', i: current, vol, screens: screensCount() }));
 });
 
 // keep connections alive on hosts that close idle sockets
