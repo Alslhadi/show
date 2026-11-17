@@ -6,7 +6,8 @@ const { WebSocketServer } = require('ws');
 
 const PORT = process.env.PORT || 3000;
 const PIN = String(process.env.CONTROL_PIN || '2311');   // change it in the host's settings
-const PUB = path.join(__dirname, 'public');
+// works whether index.html sits in /public or next to this file
+const PUB = fs.existsSync(path.join(__dirname, 'public', 'index.html')) ? path.join(__dirname, 'public') : __dirname;
 
 let current = 0;                                 // current slide index
 
