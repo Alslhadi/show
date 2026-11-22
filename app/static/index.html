@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>مركز التداول الذكي</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="/static/lwc.js"></script>
+<style>
+:root{--bg:#07080a;--panel:#0e1013;--panel2:#13161a;--line:#1f242b;--text:#e8eaed;--mute:#8a919c;--dim:#5a616b;
+--up:#2fbf71;--down:#e5484d;--gold:#c9a45c;--warn:#e3a008;--r:14px}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:"IBM Plex Sans Arabic",system-ui,sans-serif;font-size:14px;min-height:100vh;padding-bottom:84px}
+.num{font-family:"JetBrains Mono",monospace;direction:ltr;unicode-bidi:isolate}
+header{position:sticky;top:0;z-index:5;background:rgba(7,8,10,.92);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:12px 16px;display:flex;align-items:center;gap:10px}
+.brand{font-weight:700;letter-spacing:.2px}.brand span{color:var(--gold)}
+.pill{font-size:11px;padding:3px 9px;border-radius:99px;border:1px solid var(--line);color:var(--mute);white-space:nowrap}
+.pill.ok{color:var(--up);border-color:rgba(47,191,113,.35)}.pill.bad{color:var(--down);border-color:rgba(229,72,77,.4)}
+.pill.gold{color:var(--gold);border-color:rgba(201,164,92,.4)}
+.sp{flex:1}
+.banner{margin:12px 16px 0;padding:10px 12px;border-radius:10px;font-size:12.5px;line-height:1.6}
+.banner.sim{background:rgba(227,160,8,.08);border:1px solid rgba(227,160,8,.3);color:#f0c75e}
+.banner.blk{background:rgba(229,72,77,.08);border:1px solid rgba(229,72,77,.35);color:#ff8a8d}
+main{padding:12px 16px;display:grid;gap:12px;max-width:1280px;margin:0 auto}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px}
+.card h3{font-size:12px;font-weight:500;color:var(--mute);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px}
+.kpi .l{font-size:11.5px;color:var(--mute)}.kpi .v{font-size:20px;font-weight:600;margin-top:4px}
+.up{color:var(--up)}.down{color:var(--down)}.mute{color:var(--mute)}
+.tabs{position:fixed;bottom:0;left:0;right:0;z-index:6;display:flex;background:rgba(14,16,19,.96);backdrop-filter:blur(10px);border-top:1px solid var(--line);padding:6px 6px calc(6px + env(safe-area-inset-bottom))}
+.tabs button{flex:1;background:none;border:0;color:var(--dim);font:inherit;font-size:11px;padding:8px 2px;border-radius:10px;cursor:pointer}
+.tabs button.on{color:var(--text);background:var(--panel2)}
+.tabs i{display:block;font-style:normal;font-size:17px;margin-bottom:2px}
+section{display:none}section.on{display:grid;gap:12px}
+.sym-row{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
+.chip{background:var(--panel2);border:1px solid var(--line);color:var(--mute);border-radius:99px;padding:6px 12px;font:inherit;font-size:12px;cursor:pointer;white-space:nowrap}
+.chip.on{color:var(--text);border-color:var(--gold)}
+#chart{height:320px;border-radius:10px;overflow:hidden}
+.sig{border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--panel2);display:grid;gap:8px}
+.sig .top{display:flex;align-items:center;gap:8px}.sig .sym{font-weight:700}
+.grade{font-size:11px;padding:2px 8px;border-radius:6px;font-weight:600}
+.g-STRONG{background:rgba(47,191,113,.15);color:var(--up)}.g-MODERATE{background:rgba(201,164,92,.15);color:var(--gold)}
+.g-WEAK{background:rgba(138,145,156,.15);color:var(--mute)}.g-NO_TRADE{background:rgba(229,72,77,.1);color:#ff8a8d}
+.bar{height:6px;background:var(--line);border-radius:9px;overflow:hidden}.bar>div{height:100%;background:linear-gradient(90deg,var(--gold),#e8cf95)}
+.lv{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;font-size:12px}
+.lv div{background:var(--panel);border-radius:8px;padding:6px 8px}.lv b{display:block;font-size:10.5px;color:var(--mute);font-weight:400}
+.ev{font-size:12px;color:var(--mute);line-height:1.7}
+.gates{font-size:12px;color:#ff8a8d;line-height:1.7}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{color:var(--mute);font-weight:400;text-align:right;padding:6px 4px;border-bottom:1px solid var(--line);font-size:11.5px}
+td{padding:8px 4px;border-bottom:1px solid var(--line)}
+.btn{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:9px 14px;font:inherit;font-size:13px;cursor:pointer}
+.btn.pri{background:var(--gold);color:#111;border-color:var(--gold);font-weight:600}
+.btn.red{background:rgba(229,72,77,.12);color:#ff8a8d;border-color:rgba(229,72,77,.45)}
+.btn.sm{padding:5px 10px;font-size:12px}
+.kill{width:100%;padding:16px;font-size:15px;font-weight:700;border-radius:14px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+select,input{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:9px 10px;font:inherit}
+.lim{display:grid;grid-template-columns:1fr auto;gap:8px 12px;font-size:13px}.lim span:nth-child(odd){color:var(--mute)}
+.log{font-size:12px;line-height:1.6;border-bottom:1px solid var(--line);padding:7px 0;display:flex;gap:8px}
+.log .t{color:var(--dim);flex:none}.log.warn{color:var(--warn)}.log.error{color:#ff8a8d}
+#login{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:20;padding:24px}
+#login .box{width:100%;max-width:360px;display:grid;gap:12px;text-align:center}
+#login h1{font-size:22px}#login p{color:var(--mute);font-size:13px}
+.mtf{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-size:12px;text-align:center}
+.mtf div{background:var(--panel2);border-radius:8px;padding:8px 4px}.mtf b{display:block;color:var(--mute);font-weight:400;font-size:11px}
+@media(min-width:900px){.kpis{grid-template-columns:repeat(4,1fr)}.two{display:grid;grid-template-columns:1.6fr 1fr;gap:12px}#chart{height:420px}}
+</style>
+</head>
+<body>
+<div id="login"><div class="box">
+  <h1>مركز <span style="color:var(--gold)">التداول</span> الذكي</h1>
+  <p>أدخل رمز الدخول (DASHBOARD_TOKEN من ملف الإعدادات)</p>
+  <input id="tok" type="password" placeholder="رمز الدخول" autocomplete="current-password">
+  <button class="btn pri" onclick="login()">دخول</button>
+  <p id="lerr" class="down"></p>
+</div></div>
+
+<header>
+  <div class="brand">مركز <span>التداول</span></div>
+  <span id="pMode" class="pill">—</span>
+  <span id="pConn" class="pill">—</span>
+  <div class="sp"></div>
+  <span id="pExec" class="pill gold">—</span>
+</header>
+<div id="bSim" class="banner sim" style="display:none">وضع محاكاة: الأسعار مولّدة لاختبار النظام وليست بيانات سوق حقيقية. اربط حساب Exness لرؤية بياناتك الفعلية.</div>
+<div id="bBlk" class="banner blk" style="display:none"></div>
+
+<main>
+<!-- OVERVIEW -->
+<section id="t-over" class="on">
+  <div class="kpis">
+    <div class="kpi"><div class="l">الرصيد</div><div class="v num" id="kBal">—</div></div>
+    <div class="kpi"><div class="l">الإكويتي</div><div class="v num" id="kEq">—</div></div>
+    <div class="kpi"><div class="l">الربح العائم</div><div class="v num" id="kFl">—</div></div>
+    <div class="kpi"><div class="l">صفقات مفتوحة</div><div class="v num" id="kOpen">—</div></div>
+    <div class="kpi"><div class="l">نسبة الفوز</div><div class="v num" id="kWr">—</div></div>
+    <div class="kpi"><div class="l">معامل الربح</div><div class="v num" id="kPf">—</div></div>
+    <div class="kpi"><div class="l">صافي الصفقات المغلقة</div><div class="v num" id="kNet">—</div></div>
+    <div class="kpi"><div class="l">الهامش الحر</div><div class="v num" id="kMf">—</div></div>
+  </div>
+  <div class="two">
+    <div class="card">
+      <h3>الشارت <span class="sp"></span><span id="chTf" class="pill">M5</span></h3>
+      <div class="sym-row" id="symRow"></div>
+      <div id="chart" style="margin-top:10px"></div>
+    </div>
+    <div class="card"><h3>تحليل الأطر الزمنية</h3><div id="mtfBox" class="ev">—</div></div>
+  </div>
+</section>
+
+<!-- SIGNALS -->
+<section id="t-sig">
+  <div class="card"><h3>بانتظار موافقتك</h3><div id="pendBox" class="ev">لا يوجد</div></div>
+  <div class="card"><h3>آخر تحليل لكل زوج</h3><div id="sigBox" style="display:grid;gap:10px"></div></div>
+</section>
+
+<!-- POSITIONS -->
+<section id="t-pos">
+  <div class="card"><h3>الصفقات المفتوحة</h3><div style="overflow-x:auto"><table id="posT"></table></div></div>
+  <div class="card"><h3>سجل الصفقات</h3><div style="overflow-x:auto"><table id="histT"></table></div></div>
+</section>
+
+<!-- RISK / CONTROL -->
+<section id="t-risk">
+  <div class="card">
+    <h3>التحكم</h3>
+    <div class="row">
+      <select id="execSel" onchange="setExec(this.value)">
+        <option value="MANUAL">يدوي</option><option value="ASSISTED">مساعد (عرض فقط)</option>
+        <option value="SEMI_AUTO">شبه آلي (بموافقتك)</option><option value="AUTO">آلي كامل</option>
+      </select>
+    </div>
+  </div>
+  <div class="card">
+    <h3>زر الطوارئ</h3>
+    <div id="killState" class="ev" style="margin-bottom:10px">—</div>
+    <button id="killBtn" class="btn red kill" onclick="toggleKill()">إيقاف كل التداول</button>
+    <label class="row ev" style="margin-top:10px"><input type="checkbox" id="killClose"> إغلاق كل الصفقات المفتوحة أيضاً</label>
+  </div>
+  <div class="card"><h3>الحدود الصارمة</h3><div class="lim" id="limBox"></div></div>
+  <div class="card">
+    <h3>حاسبة اللوت</h3>
+    <div class="row">
+      <select id="lcSym"></select>
+      <input id="lcEntry" placeholder="الدخول" inputmode="decimal" style="width:110px">
+      <input id="lcSl" placeholder="الوقف" inputmode="decimal" style="width:110px">
+      <button class="btn sm" onclick="calcLot()">احسب</button>
+    </div>
+    <div id="lcOut" class="ev" style="margin-top:8px"></div>
+  </div>
+</section>
+
+<!-- LOGS -->
+<section id="t-log"><div class="card"><h3>سجل النظام</h3><div id="logBox"></div></div></section>
+</main>
+
+<nav class="tabs">
+  <button class="on" data-t="over"><i>◈</i>نظرة عامة</button>
+  <button data-t="sig"><i>◎</i>الفرص</button>
+  <button data-t="pos"><i>▤</i>الصفقات</button>
+  <button data-t="risk"><i>⛨</i>المخاطر</button>
+  <button data-t="log"><i>≡</i>السجل</button>
+</nav>
+
+<script>
+let TOKEN = null, S = null, curSym = null, chart, series, ema20, ema50, ws;
+const $ = id => document.getElementById(id);
+const px = v => v == null ? "—" : fmt(v, Math.abs(v) >= 100 ? 2 : 5);
+const fmt = (v, d = 2) => v == null ? "—" : Number(v).toLocaleString("en-US", {minimumFractionDigits: d, maximumFractionDigits: d});
+const dt = t => new Date(t * 1000).toLocaleString("ar-AE", {timeZone: "Asia/Dubai", hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit"});
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const GR = {STRONG: "قوية", MODERATE: "متوسطة", WEAK: "ضعيفة", NO_TRADE: "لا تداول"};
+const TR = {up: "صاعد", down: "هابط", range: "عرضي"};
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, {...opts, headers: {"X-Token": TOKEN, "Content-Type": "application/json", ...(opts.headers || {})}});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.detail || r.status);
+  return j;
+}
+async function login() {
+  TOKEN = $("tok").value.trim();
+  try { await api("/api/snapshot"); $("login").style.display = "none"; start(); }
+  catch (e) { $("lerr").textContent = "رمز غير صحيح"; TOKEN = null; }
+}
+$("tok").addEventListener("keydown", e => e.key === "Enter" && login());
+
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("on", x === b));
+  document.querySelectorAll("section").forEach(s => s.classList.toggle("on", s.id === "t-" + b.dataset.t));
+  if (b.dataset.t === "over") setTimeout(() => chart && chart.timeScale().fitContent(), 50);
+});
+
+function start() {
+  chart = LightweightCharts.createChart($("chart"), {
+    layout: {background: {color: "#0e1013"}, textColor: "#8a919c", fontFamily: "JetBrains Mono"},
+    grid: {vertLines: {color: "#15191e"}, horzLines: {color: "#15191e"}},
+    rightPriceScale: {borderColor: "#1f242b"}, timeScale: {borderColor: "#1f242b", timeVisible: true},
+    crosshair: {mode: 0}, autoSize: true});
+  series = chart.addCandlestickSeries({upColor: "#2fbf71", downColor: "#e5484d", borderVisible: false, wickUpColor: "#2fbf71", wickDownColor: "#e5484d"});
+  ema20 = chart.addLineSeries({color: "#c9a45c", lineWidth: 1, priceLineVisible: false, lastValueVisible: false});
+  ema50 = chart.addLineSeries({color: "#5a7bd6", lineWidth: 1, priceLineVisible: false, lastValueVisible: false});
+  connect();
+  setInterval(loadChart, 10000);
+}
+function connect() {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(TOKEN)}`);
+  ws.onmessage = e => render(JSON.parse(e.data));
+  ws.onclose = () => { $("pConn").textContent = "انقطع الاتصال"; $("pConn").className = "pill bad"; setTimeout(connect, 3000); };
+}
+async function loadChart() {
+  if (!curSym) return;
+  try {
+    const d = await api(`/api/candles/${curSym}/M5?n=200`);
+    series.setData(d.candles.map(c => ({time: c.time, open: c.open, high: c.high, low: c.low, close: c.close})));
+    ema20.setData(d.candles.map(c => ({time: c.time, value: c.ema20})));
+    ema50.setData(d.candles.map(c => ({time: c.time, value: c.ema50})));
+    drawLevels();
+  } catch (e) {}
+}
+let priceLines = [];
+function drawLevels() {
+  priceLines.forEach(l => series.removePriceLine(l)); priceLines = [];
+  const c = S && S.signals.find(x => x.symbol === curSym);
+  if (!c || !c.entry || c.grade === "NO_TRADE") return;
+  const add = (p, col, t) => priceLines.push(series.createPriceLine({price: p, color: col, lineWidth: 1, lineStyle: 2, title: t}));
+  add(c.entry, "#c9a45c", "دخول"); add(c.sl, "#e5484d", "وقف"); add(c.tp1, "#2fbf71", "TP1"); add(c.tp3, "#2fbf71", "TP3");
+}
+
+function render(s) {
+  S = s;
+  const real = s.account_real;
+  $("pMode").textContent = s.simulation ? "محاكاة" : (real ? (s.trading_mode === "LIVE" ? "حقيقي LIVE" : "حقيقي (مقفل)") : "تجريبي DEMO");
+  $("pMode").className = "pill " + (real && s.trading_mode === "LIVE" ? "bad" : "gold");
+  $("pConn").textContent = s.connected ? "متصل · " + s.broker : "غير متصل";
+  $("pConn").className = "pill " + (s.connected ? "ok" : "bad");
+  $("pExec").textContent = {MANUAL: "يدوي", ASSISTED: "مساعد", SEMI_AUTO: "شبه آلي", AUTO: "آلي"}[s.execution_mode];
+  $("execSel").value = s.execution_mode;
+  $("bSim").style.display = s.simulation ? "block" : "none";
+  $("bBlk").style.display = s.trading_permitted ? "none" : "block";
+  $("bBlk").textContent = "التنفيذ متوقف: " + (s.blocked_reason || "");
+
+  const a = s.account;
+  if (a) {
+    $("kBal").textContent = fmt(a.balance); $("kEq").textContent = fmt(a.equity); $("kMf").textContent = fmt(a.margin_free);
+    const fl = a.equity - a.balance; $("kFl").textContent = (fl >= 0 ? "+" : "") + fmt(fl); $("kFl").className = "v num " + (fl >= 0 ? "up" : "down");
+  }
+  $("kOpen").textContent = s.positions.length;
+  $("kWr").textContent = s.stats.win_rate == null ? "—" : s.stats.win_rate + "%";
+  $("kPf").textContent = s.stats.profit_factor ?? "—";
+  $("kNet").textContent = fmt(s.stats.net); $("kNet").className = "v num " + (s.stats.net >= 0 ? "up" : "down");
+
+  const syms = s.signals.map(x => x.symbol);
+  if (!curSym && syms.length) { curSym = syms[0]; loadChart(); }
+  $("symRow").innerHTML = syms.map(x => `<button class="chip ${x === curSym ? "on" : ""}" onclick="pick('${x}')">${x}</button>`).join("");
+  if (!$("lcSym").options.length) $("lcSym").innerHTML = syms.map(x => `<option>${x}</option>`).join("");
+
+  const cur = s.signals.find(x => x.symbol === curSym);
+  $("mtfBox").innerHTML = cur ? `<div class="mtf">${Object.entries(cur.mtf).map(([tf, v]) =>
+      `<div><b>${tf}</b><span class="${v.trend === "up" ? "up" : v.trend === "down" ? "down" : "mute"}">${TR[v.trend]}</span><div class="num mute" style="font-size:11px">RSI ${fmt(v.rsi, 0)}</div></div>`).join("")}</div>
+      <div style="margin-top:10px">${sigCard(cur, false)}</div>` : "—";
+
+  $("sigBox").innerHTML = s.signals.map(c => sigCard(c, false)).join("") || '<div class="ev">بانتظار أول تحليل…</div>';
+  $("pendBox").innerHTML = s.pending.length ? s.pending.map(c => sigCard(c, true)).join("") : "لا يوجد";
+
+  $("posT").innerHTML = `<tr><th>الزوج</th><th>الاتجاه</th><th>اللوت</th><th>الدخول</th><th>الوقف</th><th>الربح</th><th></th></tr>` +
+    (s.positions.map(p => `<tr><td>${esc(p.symbol)}</td><td class="${p.direction === "BUY" ? "up" : "down"}">${p.direction === "BUY" ? "شراء" : "بيع"}</td>
+      <td class="num">${p.volume}</td><td class="num">${px(p.price_open)}</td><td class="num">${px(p.sl)}</td>
+      <td class="num ${p.profit >= 0 ? "up" : "down"}">${fmt(p.profit)}</td>
+      <td><button class="btn sm" onclick="closePos(${p.ticket})">إغلاق</button></td></tr>`).join("") || `<tr><td colspan="7" class="mute">لا توجد صفقات</td></tr>`);
+  $("histT").innerHTML = `<tr><th>الوقت</th><th>الزوج</th><th>الاتجاه</th><th>اللوت</th><th>السبب</th><th>النتيجة</th></tr>` +
+    (s.history.map(h => `<tr><td class="num mute">${dt(h.time_close)}</td><td>${esc(h.symbol)}</td><td>${h.direction === "BUY" ? "شراء" : "بيع"}</td>
+      <td class="num">${h.volume}</td><td class="mute">${esc(h.reason || "")}</td><td class="num ${h.profit >= 0 ? "up" : "down"}">${fmt(h.profit)}</td></tr>`).join("") || `<tr><td colspan="6" class="mute">لا يوجد</td></tr>`);
+
+  const r = s.risk;
+  $("killState").innerHTML = r.kill_switch ? `<span class="down">مفعّل: ${esc(r.kill_reason)}</span>` : `<span class="up">التداول يعمل</span> · خسائر متتالية: <span class="num">${r.consecutive_losses}</span>`;
+  $("killBtn").textContent = r.kill_switch ? "إعادة تشغيل التداول" : "إيقاف كل التداول";
+  $("killBtn").className = "btn kill " + (r.kill_switch ? "pri" : "red");
+  const L = r.limits;
+  $("limBox").innerHTML = [["مخاطرة الصفقة", L.risk_per_trade_pct + "%"], ["حد الخسارة اليومي", L.daily_max_loss_pct + "%"],
+    ["حد الخسارة الأسبوعي", L.weekly_max_loss_pct + "%"], ["أقصى تراجع", L.max_drawdown_pct + "%"],
+    ["أقصى صفقات مفتوحة", L.max_open_trades], ["إيقاف بعد خسائر متتالية", L.max_consecutive_losses]]
+    .map(([k, v]) => `<span>${k}</span><span class="num">${v}</span>`).join("");
+
+  $("logBox").innerHTML = s.logs.map(l => `<div class="log ${l.level}"><span class="t num">${dt(l.t)}</span><span>${esc(l.msg)}</span></div>`).join("") || '<div class="ev">—</div>';
+}
+
+function sigCard(c, pending) {
+  const dir = c.direction === "BUY" ? "شراء" : c.direction === "SELL" ? "بيع" : "—";
+  const lv = c.entry ? `<div class="lv num">
+    <div><b>دخول</b>${px(c.entry)}</div><div><b>وقف</b><span class="down">${px(c.sl)}</span></div><div><b>لوت</b>${c.lots}</div>
+    <div><b>TP1 · ${c.rr_tp1}R</b><span class="up">${px(c.tp1)}</span></div><div><b>TP2 · ${c.rr_tp2}R</b><span class="up">${px(c.tp2)}</span></div>
+    <div><b>TP3 · ${c.rr_tp3}R</b><span class="up">${px(c.tp3)}</span></div></div>` : "";
+  return `<div class="sig">
+    <div class="top"><span class="sym">${esc(c.symbol)}</span><span class="${c.direction === "BUY" ? "up" : "down"}">${dir}</span>
+      <span class="sp"></span><span class="grade g-${c.grade}">${GR[c.grade] || c.grade}</span><span class="num">${c.score ?? "—"}</span></div>
+    <div class="bar"><div style="width:${c.score || 0}%"></div></div>
+    ${c.grade === "NO_TRADE" ? `<div class="ev" style="color:var(--text)">NO TRADE — WAIT FOR CONFIRMATION</div>` : ""}
+    ${lv}
+    ${(c.evidence || []).length ? `<div class="ev">${c.evidence.map(e => `• ${esc(e.factor)}: ${esc(e.detail)}`).join("<br>")}</div>` : ""}
+    ${(c.gates_failed || []).length ? `<div class="gates">${c.gates_failed.map(g => "✕ " + esc(g)).join("<br>")}</div>` : ""}
+    ${c.invalidation ? `<div class="ev">الإلغاء: ${esc(c.invalidation)}</div>` : ""}
+    ${pending ? `<div class="row"><button class="btn pri sm" onclick="approve('${c.id}')">موافقة وتنفيذ</button><button class="btn sm" onclick="reject('${c.id}')">رفض</button></div>` : ""}
+  </div>`;
+}
+
+function pick(s) { curSym = s; loadChart(); render(S); }
+async function setExec(m) { await api("/api/execution-mode", {method: "POST", body: JSON.stringify({execution_mode: m})}); }
+async function toggleKill() {
+  const on = !S.risk.kill_switch;
+  if (on && !confirm("إيقاف كل التداول الجديد؟")) return;
+  await api("/api/killswitch", {method: "POST", body: JSON.stringify({on, close_all: on && $("killClose").checked})});
+}
+async function approve(id) { try { const r = await api(`/api/signals/${id}/approve`, {method: "POST"}); alert(r.ok ? "تم التنفيذ — مؤكد من الوسيط" : "لم يُنفّذ: " + r.message); } catch (e) { alert(e.message); } }
+async function reject(id) { await api(`/api/signals/${id}/reject`, {method: "POST"}); }
+async function closePos(t) { if (!confirm("إغلاق الصفقة؟")) return; const r = await api(`/api/positions/${t}/close`, {method: "POST", body: "{}"}); if (!r.ok) alert(r.message); }
+async function calcLot() {
+  try {
+    const r = await api("/api/lot-size", {method: "POST", body: JSON.stringify({symbol: $("lcSym").value, entry: +$("lcEntry").value, sl: +$("lcSl").value})});
+    $("lcOut").innerHTML = r.lots > 0 ? `اللوت: <b class="num">${r.lots}</b> · الخسارة عند الوقف: <span class="num">${r.risk_money}$</span> (<span class="num">${r.risk_pct_actual}%</span>)` : `<span class="down">${esc(r.reason)}</span>`;
+  } catch (e) { $("lcOut").textContent = e.message; }
+}
+</script>
+</body>
+</html>
