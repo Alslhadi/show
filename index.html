@@ -437,7 +437,7 @@ const remoteEl=document.getElementById('remote');
 function wsSend(o){try{ws&&ws.readyState===1&&ws.send(JSON.stringify(o))}catch(e){}}
 function push(i){lastI=i;wsSend({t:'nav',i,pin})}
 function onRemote(i){if(typeof i!=='number')return;lastI=i;if(body.classList.contains('live'))go(i,true);renderRemote()}
-const titleOf=i=>S[i].title||'الترحيب';
+const titleOf=i=>S[i].pn?('ورقة عمل: '+S[i].pn):(S[i].title||'الترحيب');
 function renderRemote(){if(mode!=='remote')return;const i=lastI??0;
  document.getElementById('rNum').textContent=`${i+1} / ${S.length}`;
  document.getElementById('rCur').textContent=titleOf(i);
