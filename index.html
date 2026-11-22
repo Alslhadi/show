@@ -136,7 +136,7 @@ body.live:not(.idle) .ctl{opacity:1;pointer-events:auto}
 }
 
 .two{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
-@media (max-width:700px){#start .two{flex-direction:column;align-items:stretch;width:min(320px,calc(100vw - 32px))}#start .two button{width:100%}#start .keys{display:none}}
+@media (max-width:700px),(pointer:coarse) and (max-width:1100px),(max-height:500px){#start .two{flex-direction:column;align-items:stretch;width:min(340px,calc(100vw - 32px))}#start .two button{width:100%;font-size:24px;padding:16px 20px}#start .keys{display:none}}
 #remoteBtn{font-family:var(--f);font-size:22px;font-weight:700;color:var(--navy);background:#fff;border:2px solid var(--navy);border-radius:999px;padding:16px 36px;cursor:pointer}
 #remoteBtn:focus-visible,#remote button:focus-visible{outline:3px solid var(--violet);outline-offset:3px}
 #wrap[hidden],#remote[hidden]{display:none!important}
@@ -517,7 +517,13 @@ const anthem=document.getElementById('anthem'),quran=document.getElementById('qu
 const AUD={'السلام السلطاني':anthem,'القرآن الكريم':quran};const played=new Set();const fades=new Map();
 function fadeStop(el,ms=900){if(!el||el.paused)return;clearInterval(fades.get(el));const step=50/ms;
  fades.set(el,setInterval(()=>{el.volume=Math.max(0,el.volume-step);if(el.volume<=0.01){clearInterval(fades.get(el));fades.delete(el);el.pause();el.volume=elVol();try{el.currentTime=0}catch(e){}audioState()}},50))}
-function playAud(el){if(!el)return;Object.values(AUD).forEach(x=>{if(x!==el)fadeStop(x)});clearInterval(fades.get(el));fades.delete(el);el.loop=false;el.volume=elVol();try{el.currentTime=0}catch(e){}el.play().then(audioState).catch(()=>{})}
+// the Quran goes through a gain node: while the page unlocks audio on the first click it is held at zero, so nothing is ever heard until the play button
+let qGain=null,qPriming=false;
+function routeQuran(){try{if(qGain||!actx)return;const src=actx.createMediaElementSource(quran);qGain=actx.createGain();qGain.gain.value=0;src.connect(qGain);qGain.connect(actx.destination)}catch(e){}}
+function primeQuran(){routeQuran();if(!qGain)return;qPriming=true;qGain.gain.value=0;quran.muted=true;
+ try{const pr=quran.play();quran.pause();if(pr&&pr.catch)pr.catch(()=>{});}catch(e){}
+ setTimeout(()=>{try{quran.pause();quran.currentTime=0}catch(e){}quran.muted=false;qPriming=false},300)}
+function playAud(el){if(!el)return;if(el===quran){routeQuran();quran.muted=false;if(qGain){try{qGain.gain.cancelScheduledValues(actx.currentTime)}catch(e){}qGain.gain.value=1}}Object.values(AUD).forEach(x=>{if(x!==el)fadeStop(x)});clearInterval(fades.get(el));fades.delete(el);el.loop=false;el.volume=elVol();try{el.currentTime=0}catch(e){}el.play().then(audioState).catch(()=>{})}
 // calm music for waiting slides (seamless loop through Web Audio, fades in/out)
 const MUSIC_SLIDES=new Set(['الاستراحة','وجبة الغداء']);
 const isMusic=i=>S[i]&&(S[i].k==='welcome'||MUSIC_SLIDES.has(S[i].title));
@@ -525,6 +531,7 @@ let actx=null,mBuf=null,mSrc=null,mGain=null,musicOn=false,VOL=0.3;
 const elVol=()=>1;   // anthem and Quran always play at their own full level
 function setVol(v){VOL=Math.max(0.05,Math.min(1,Math.round(v*100)/100));try{if(actx&&musicOn){const n=actx.currentTime;mGain.gain.cancelScheduledValues(n);mGain.gain.setValueAtTime(mGain.gain.value,n);mGain.gain.linearRampToValueAtTime(VOL,n+.6)}}catch(e){}[anthem,quran].forEach(el=>{if(!el.paused&&!fades.has(el))el.volume=elVol()});renderVol()}
 let renderVol=()=>{};
+quran.addEventListener('playing',()=>{if(qPriming||(qGain&&qGain.gain.value===0)){quran.pause();try{quran.currentTime=0}catch(e){}}});
 function initAudioCtx(){try{if(!actx){actx=new (window.AudioContext||window.webkitAudioContext)();mGain=actx.createGain();mGain.gain.value=0;mGain.connect(actx.destination);
  const b=atob(document.getElementById('musicB64').textContent.trim());const u=new Uint8Array(b.length);for(let k=0;k<b.length;k++)u[k]=b.charCodeAt(k);
  actx.decodeAudioData(u.buffer,buf=>{mBuf=buf},()=>{})}if(actx.state==='suspended')actx.resume()}catch(e){}}
@@ -596,7 +603,7 @@ const setAuto=()=>{};
 const body=document.body;
 function fs(){try{const el=document.documentElement;if(!document.fullscreenElement&&el.requestFullscreen)el.requestFullscreen().catch(()=>{})}catch(e){}}
 function start(){try{document.activeElement&&document.activeElement.blur()}catch(e){}
- initAudioCtx();[anthem,quran].forEach(el=>{try{el.muted=true;el.play().then(()=>{el.pause();el.currentTime=0;el.muted=false}).catch(()=>{el.muted=false})}catch(e){}});played.clear();
+ initAudioCtx();primeQuran();played.clear();
 body.classList.add('live');document.getElementById('start').hidden=true;fit();fs();
  if(lastI!=null)go(lastI,true);setRole('screen');
  poke();try{navigator.wakeLock&&navigator.wakeLock.request('screen').catch(()=>{})}catch(e){}}
