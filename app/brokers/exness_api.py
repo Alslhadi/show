@@ -125,6 +125,48 @@ class ExnessClient:
     def ws_events_path(self) -> str:
         return f"/v1/server-events/accounts/{self.account_id}/ws/events"
 
-    # --- awaiting official schema --------------------------------------------
-    def open_position(self, **_):
-        raise NotImplementedError("صيغة جسم أمر الفتح غير منشورة في المقتطف العام — بانتظار الوثيقة الرسمية")
+    # --- trading (confirmed by "Place Your First Trade") ------------------------
+    # Trading is ASYNCHRONOUS: the POST returns an ACK {"operation_id","client_request_id",
+    # "status":"accepted"}; the final result arrives as a `transaction_event` on the server-events
+    # WebSocket (or via operation status). An ACK is NOT a fill — never report success on it.
+    def open_position(self, instrument: str, side: str, volume: str, client_request_id: str) -> dict:
+        side = side.lower()
+        if side not in ("buy", "sell"):
+            raise ValueError("side يجب أن يكون buy أو sell")
+        body = {"instrument": instrument, "side": side, "volume": volume}  # volume is a decimal STRING
+        raw = json.dumps(body, separators=(",", ":")).encode()
+        path = f"/v1/trading/accounts/{self.account_id}/orders"
+        h = signed_headers(self.api_key, self.key, "POST", path, raw, client_request_id)
+        h["Content-Type"] = "application/json"
+        r = self.http.post((self.base_url or self.resolve_access_point()) + path, content=raw, headers=h)
+        data = r.json() if r.content else {}
+        if r.status_code >= 400:
+            code = data.get("error_code") or data.get("code")
+            raise ExnessError(r.status_code, code, data)
+        return data  # ACK only
+
+    # --- still awaiting the API Reference ---------------------------------------
+    # SL/TP attachment, positions list/close/modify, candle history, operation status,
+    # dedicated ticks WebSocket path. Not implemented until the exact schema is provided.
+
+
+ERROR_HINTS = {
+    4001: "MARKET_TRADE_DISABLED — التداول مغلق للحساب أو الأداة",
+    4002: "MARKET_CLOSE_ONLY — مسموح الإغلاق فقط",
+    5000: "TRADING_RULE_INVALID_VOLUME — الحجم خارج الحدود أو الخطوة",
+    5005: "TRADING_RULE_INVALID_PRICE_LEVELS — مستويات الوقف/الهدف غير صالحة",
+    6000: "EXECUTION_REQUOTE — إعادة تسعير، أعد المحاولة فقط والسوق مفتوح",
+    6001: "EXECUTION_REJECTED — رُفض التنفيذ، انتظر سعراً جديداً",
+}
+
+
+class ExnessError(RuntimeError):
+    def __init__(self, status: int, code, data: dict) -> None:
+        self.status, self.code, self.data = status, code, data
+        hint = ERROR_HINTS.get(int(code)) if str(code).isdigit() else None
+        super().__init__(f"Exness {status} {code}: {hint or data}")
+
+
+def ticks_subscription(instruments: list[str], req_id: str) -> dict:
+    """Confirmed payload from 'API Configuration and Limits'."""
+    return {"id": req_id, "subscribe": {"event": "ticks", "instruments": instruments}}

@@ -19,3 +19,14 @@ def test_rejects_mismatched_public_half():
     bad = RFC8032_HEX[:-2] + "00"
     with pytest.raises(ValueError):
         load_private_key(bad)
+
+
+def test_ticks_subscription_payload():
+    from app.brokers.exness_api import ticks_subscription
+    assert ticks_subscription(["XAUUSD"], "ticks-xauusd-1") == {
+        "id": "ticks-xauusd-1", "subscribe": {"event": "ticks", "instruments": ["XAUUSD"]}}
+
+
+def test_error_hint():
+    from app.brokers.exness_api import ExnessError
+    assert "INVALID_VOLUME" in str(ExnessError(400, 5000, {}))
