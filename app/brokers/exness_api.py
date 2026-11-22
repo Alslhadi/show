@@ -135,7 +135,9 @@ class ExnessClient:
             raise ValueError("side يجب أن يكون buy أو sell")
         body = {"instrument": instrument, "side": side, "volume": volume}  # volume is a decimal STRING
         raw = json.dumps(body, separators=(",", ":")).encode()
-        path = f"/v1/trading/accounts/{self.account_id}/orders"
+        # Runtime Semantics: immediate execution = POST .../positions (the /orders endpoint is for
+        # pending limit/stop orders only and does not accept market orders).
+        path = f"/v1/trading/accounts/{self.account_id}/positions"
         h = signed_headers(self.api_key, self.key, "POST", path, raw, client_request_id)
         h["Content-Type"] = "application/json"
         r = self.http.post((self.base_url or self.resolve_access_point()) + path, content=raw, headers=h)
@@ -145,8 +147,29 @@ class ExnessClient:
             raise ExnessError(r.status_code, code, data)
         return data  # ACK only
 
+    def close_position(self, position_id: str, client_request_id: str) -> dict:
+        path = f"/v1/trading/accounts/{self.account_id}/positions/{position_id}"
+        h = signed_headers(self.api_key, self.key, "DELETE", path, b"", client_request_id)
+        r = self.http.delete((self.base_url or self.resolve_access_point()) + path, headers=h)
+        data = r.json() if r.content else {}
+        if r.status_code >= 400:
+            raise ExnessError(r.status_code, data.get("error_code") or data.get("code"), data)
+        return data  # ACK only
+
+    def snapshot(self) -> dict:
+        """Active orders, open positions and account state."""
+        return self._request("GET", f"/v1/trading/accounts/{self.account_id}/snapshot")
+
+    def operation_status(self, operation_id: str) -> dict:
+        """pending | confirmed | rejected | failed. Retained 24 h. Recovery path when the
+        transaction_event is not received in time."""
+        return self._request("GET", f"/v1/trading/accounts/{self.account_id}/operations/{operation_id}")
+
+    def history_deals(self) -> dict:
+        return self._request("GET", f"/v1/history/accounts/{self.account_id}/deals")
+
     # --- still awaiting the API Reference ---------------------------------------
-    # SL/TP attachment, positions list/close/modify, candle history, operation status,
+    # SL/TP fields when opening a position, partial-close body, candle-history path,
     # dedicated ticks WebSocket path. Not implemented until the exact schema is provided.
 
 
