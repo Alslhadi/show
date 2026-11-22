@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import json
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -71,6 +72,19 @@ async def keep_awake() -> None:
 async def lifespan(app: FastAPI):
     task = asyncio.create_task(engine.run(interval=2.0))
     pinger = asyncio.create_task(keep_awake())
+    if settings.exn_api_key and settings.exn_private_key:
+        async def startup_check():
+            r = await asyncio.to_thread(exness_test)
+            safe = {k: r.get(k) for k in ("ok", "message", "open_positions", "active_orders")}
+            if r.get("ok"):
+                a = r.get("account") or {}
+                safe.update(account_id=a.get("account_id"), account_name=a.get("account_name"),
+                            currency=(a.get("settings") or {}).get("currency"),
+                            trade_mode=(a.get("settings") or {}).get("trade_mode"),
+                            account_state=r.get("account_state"))
+            print("EXNESS_STARTUP_CHECK", json.dumps(safe, ensure_ascii=False), flush=True)
+            engine.log("info" if r.get("ok") else "error", "فحص اتصال Exness: " + ("ناجح" if r.get("ok") else str(r.get("message"))))
+        asyncio.create_task(startup_check())
     engine.log("info", f"بدء النظام — المصدر: {engine.broker.name}، وضع التنفيذ: {engine.execution_mode}")
     yield
     task.cancel()
