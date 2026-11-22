@@ -20,7 +20,8 @@ from .risk import position_size, risk_engine
 
 def make_broker():
     if settings.data_source.upper() == "EXNESS":
-        raise RuntimeError("ربط Exness للتنفيذ بانتظار الوثائق الرسمية — استخدم SIMULATION أو MT5 حالياً")
+        from .brokers.exness_broker import ExnessBroker
+        return ExnessBroker()
     if settings.data_source.upper() == "MT5":
         from .brokers.mt5_broker import MT5Broker
         return MT5Broker()
@@ -111,6 +112,24 @@ def candles(symbol: str, tf: str, n: int = 200):
 @app.get("/api/analysis/{symbol}", dependencies=[Depends(auth)])
 def analysis(symbol: str):
     return engine.analyze_symbol(symbol.upper())
+
+
+@app.get("/api/exness/test", dependencies=[Depends(auth)])
+def exness_test():
+    """Read-only connection check: discovery + account details + snapshot. Never trades."""
+    if not all([settings.exn_api_key, settings.exn_private_key, settings.exn_account_id, settings.exn_discovery_base_url]):
+        return {"ok": False, "message": "أضف EXN_API_KEY و EXN_PRIVATE_KEY و EXN_ACCOUNT_ID و EXN_DISCOVERY_BASE_URL في Render"}
+    try:
+        from .brokers.exness_api import ExnessClient
+        c = ExnessClient(settings.exn_api_key, settings.exn_private_key, settings.exn_account_id,
+                         settings.exn_discovery_base_url)
+        ap = c.resolve_access_point()
+        details = c.account_config()
+        snap = c.snapshot()
+        return {"ok": True, "access_point": ap, "account": details, "account_state": snap.get("account_state"),
+                "open_positions": len(snap.get("positions", [])), "active_orders": len(snap.get("orders", []))}
+    except Exception as e:
+        return {"ok": False, "message": str(e)}
 
 
 class ModeIn(BaseModel):

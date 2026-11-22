@@ -129,32 +129,40 @@ class ExnessClient:
     # Trading is ASYNCHRONOUS: the POST returns an ACK {"operation_id","client_request_id",
     # "status":"accepted"}; the final result arrives as a `transaction_event` on the server-events
     # WebSocket (or via operation status). An ACK is NOT a fill — never report success on it.
-    def open_position(self, instrument: str, side: str, volume: str, client_request_id: str) -> dict:
+    def signed_json(self, method: str, path_with_query: str, body: dict | None, idempotency_key: str) -> dict:
+        """Mutating signed request (idempotency key 5..128 chars). Returns the ACK."""
+        if not 5 <= len(idempotency_key) <= 128:
+            raise ValueError("idempotency key must be 5..128 chars")
+        raw = b"" if body is None else json.dumps(body, separators=(",", ":")).encode()
+        h = signed_headers(self.api_key, self.key, method, path_with_query, raw, idempotency_key)
+        if body is not None:
+            h["Content-Type"] = "application/json"
+        r = self.http.request(method, (self.base_url or self.resolve_access_point()) + path_with_query,
+                              content=raw or None, headers=h)
+        data = r.json() if r.content else {}
+        if r.status_code >= 400:
+            raise ExnessError(r.status_code, data.get("code"), data)
+        return data  # ACK only — not a fill
+
+    def open_position(self, instrument: str, side: str, volume: str, client_request_id: str,
+                      stop_loss_price: str | None = None, take_profit_price: str | None = None,
+                      comment: str | None = None) -> dict:
         side = side.lower()
         if side not in ("buy", "sell"):
             raise ValueError("side يجب أن يكون buy أو sell")
-        body = {"instrument": instrument, "side": side, "volume": volume}  # volume is a decimal STRING
-        raw = json.dumps(body, separators=(",", ":")).encode()
-        # Runtime Semantics: immediate execution = POST .../positions (the /orders endpoint is for
-        # pending limit/stop orders only and does not accept market orders).
-        path = f"/v1/trading/accounts/{self.account_id}/positions"
-        h = signed_headers(self.api_key, self.key, "POST", path, raw, client_request_id)
-        h["Content-Type"] = "application/json"
-        r = self.http.post((self.base_url or self.resolve_access_point()) + path, content=raw, headers=h)
-        data = r.json() if r.content else {}
-        if r.status_code >= 400:
-            code = data.get("error_code") or data.get("code")
-            raise ExnessError(r.status_code, code, data)
-        return data  # ACK only
+        body = {"instrument": instrument, "side": side, "volume": volume}
+        if stop_loss_price:
+            body["stop_loss_price"] = stop_loss_price
+        if take_profit_price:
+            body["take_profit_price"] = take_profit_price
+        if comment:
+            body["comment"] = comment
+        return self.signed_json("POST", f"/v1/trading/accounts/{self.account_id}/positions", body, client_request_id)
 
-    def close_position(self, position_id: str, client_request_id: str) -> dict:
-        path = f"/v1/trading/accounts/{self.account_id}/positions/{position_id}"
-        h = signed_headers(self.api_key, self.key, "DELETE", path, b"", client_request_id)
-        r = self.http.delete((self.base_url or self.resolve_access_point()) + path, headers=h)
-        data = r.json() if r.content else {}
-        if r.status_code >= 400:
-            raise ExnessError(r.status_code, data.get("error_code") or data.get("code"), data)
-        return data  # ACK only
+    def close_position(self, position_id: str, client_request_id: str, volume: str | None = None) -> dict:
+        q = f"?volume={volume}" if volume else ""
+        return self.signed_json("DELETE", f"/v1/trading/accounts/{self.account_id}/positions/{position_id}{q}",
+                                None, client_request_id)
 
     def snapshot(self) -> dict:
         """Active orders, open positions and account state."""
@@ -168,9 +176,6 @@ class ExnessClient:
     def history_deals(self) -> dict:
         return self._request("GET", f"/v1/history/accounts/{self.account_id}/deals")
 
-    # --- still awaiting the API Reference ---------------------------------------
-    # SL/TP fields when opening a position, partial-close body, candle-history path,
-    # dedicated ticks WebSocket path. Not implemented until the exact schema is provided.
 
 
 ERROR_HINTS = {
@@ -187,7 +192,8 @@ class ExnessError(RuntimeError):
     def __init__(self, status: int, code, data: dict) -> None:
         self.status, self.code, self.data = status, code, data
         hint = ERROR_HINTS.get(int(code)) if str(code).isdigit() else None
-        super().__init__(f"Exness {status} {code}: {hint or data}")
+        msg = hint or (data.get("error_message") if isinstance(data, dict) else None) or data
+        super().__init__(f"Exness {status} {code}: {msg}")
 
 
 def ticks_subscription(instruments: list[str], req_id: str) -> dict:

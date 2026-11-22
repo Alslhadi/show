@@ -135,6 +135,11 @@ select,input{background:var(--panel2);color:var(--text);border:1px solid var(--l
     </div>
   </div>
   <div class="card">
+    <h3>اتصال Exness</h3>
+    <button class="btn" onclick="testExness()">اختبار الاتصال (قراءة فقط)</button>
+    <div id="exOut" class="ev" style="margin-top:8px"></div>
+  </div>
+  <div class="card">
     <h3>زر الطوارئ</h3>
     <div id="killState" class="ev" style="margin-bottom:10px">—</div>
     <button id="killBtn" class="btn red kill" onclick="toggleKill()">إيقاف كل التداول</button>
@@ -318,6 +323,17 @@ async function toggleKill() {
 async function approve(id) { try { const r = await api(`/api/signals/${id}/approve`, {method: "POST"}); alert(r.ok ? "تم التنفيذ — مؤكد من الوسيط" : "لم يُنفّذ: " + r.message); } catch (e) { alert(e.message); } }
 async function reject(id) { await api(`/api/signals/${id}/reject`, {method: "POST"}); }
 async function closePos(t) { if (!confirm("إغلاق الصفقة؟")) return; const r = await api(`/api/positions/${t}/close`, {method: "POST", body: "{}"}); if (!r.ok) alert(r.message); }
+async function testExness() {
+  $("exOut").textContent = "جارٍ الاتصال…";
+  try {
+    const r = await api("/api/exness/test");
+    if (!r.ok) { $("exOut").innerHTML = `<span class="down">${esc(r.message)}</span>`; return; }
+    const st = r.account_state || {}, a = r.account || {}, set = a.settings || {};
+    $("exOut").innerHTML = `<span class="up">متصل ✓</span><br>الحساب: <span class="num">${esc(a.account_id)}</span> · ${esc(a.account_name || "")}<br>
+      الرصيد: <span class="num">${esc(st.balance)}</span> · الإكويتي: <span class="num">${esc(st.equity)}</span> ${esc(set.currency || "")}<br>
+      الرافعة: <span class="num">${esc(set.leverage || "—")}</span> · صفقات مفتوحة: <span class="num">${r.open_positions}</span>`;
+  } catch (e) { $("exOut").textContent = e.message; }
+}
 async function calcLot() {
   try {
     const r = await api("/api/lot-size", {method: "POST", body: JSON.stringify({symbol: $("lcSym").value, entry: +$("lcEntry").value, sl: +$("lcSl").value})});
