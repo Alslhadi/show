@@ -43,6 +43,7 @@ class Engine:
         rec = {"t": time.time(), "level": level, "msg": msg, **kw}
         self.logs = (self.logs + [rec])[-300:]
         audit("log", level=level, msg=msg, **kw)
+        print(f"ENGINE [{level}] {msg} {json.dumps(kw, ensure_ascii=False, default=str) if kw else ''}", flush=True)
 
     def account_is_real(self) -> bool:
         if self.broker.is_simulation:
@@ -204,6 +205,12 @@ class Engine:
                 for h in new_hist[: max(0, len(new_hist) - closed_before)]:
                     risk_engine.record_result(h.get("profit", 0))
                 self.status.update(loop_ok=True, last_loop=today.timestamp(), error=None)
+                if time.time() - getattr(self, "_hb", 0) > 300:  # heartbeat every 5 min
+                    self._hb = time.time()
+                    grades = {k: f"{v.get('grade')}:{v.get('score')}" for k, v in self.signals.items()}
+                    print("HEARTBEAT", json.dumps({"equity": acc.equity, "balance": acc.balance,
+                          "open": len(self.broker.positions()), "permitted": self.trading_permitted(),
+                          "mode": self.execution_mode, "signals": grades}, ensure_ascii=False, default=str), flush=True)
             except Exception as e:
                 self.status.update(loop_ok=False, error=str(e))
                 self.log("error", f"خطأ في الحلقة: {e}")
