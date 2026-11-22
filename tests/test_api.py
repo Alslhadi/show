@@ -48,3 +48,15 @@ def test_kill_switch_blocks_execution():
         assert not ok and "KILL" in why
         c.post("/api/killswitch", headers=H, json={"on": False})
         assert not risk_engine.state.kill_switch
+
+
+def test_market_open_hours():
+    from datetime import datetime, timezone
+    from app.main import market_open
+    utc = lambda *a: datetime(*a, tzinfo=timezone.utc)
+    assert market_open(utc(2026, 11, 23, 10))          # Monday
+    assert market_open(utc(2026, 11, 27, 20, 59))      # Friday before close
+    assert not market_open(utc(2026, 11, 27, 21, 0))   # Friday close
+    assert not market_open(utc(2026, 11, 28, 12))      # Saturday
+    assert not market_open(utc(2026, 11, 29, 20))      # Sunday before open
+    assert market_open(utc(2026, 11, 29, 21, 0))       # Sunday open

@@ -31,9 +31,24 @@ def make_broker():
 engine = Engine(make_broker())
 
 
+def market_open(now=None) -> bool:
+    """FX/gold week: Sunday 21:00 UTC -> Friday 21:00 UTC (= Mon 01:00 -> Sat 01:00 UAE)."""
+    from datetime import datetime, timezone
+    now = now or datetime.now(timezone.utc)
+    wd, h = now.weekday(), now.hour  # Mon=0 .. Sun=6
+    if wd == 5:
+        return False
+    if wd == 4 and h >= 21:
+        return False
+    if wd == 6 and h < 21:
+        return False
+    return True
+
+
 async def keep_awake() -> None:
     """Render free instances sleep after 15 min without inbound traffic.
-    Ping our own public URL every 10 min so the trading loop keeps running."""
+    Ping our own public URL every 10 min while the market is open; let it sleep on
+    weekends to save free hours. A GitHub Action wakes it on Sunday night."""
     import os
     import httpx
     url = os.getenv("RENDER_EXTERNAL_URL")  # set automatically by Render
@@ -42,6 +57,9 @@ async def keep_awake() -> None:
     async with httpx.AsyncClient(timeout=20) as c:
         while True:
             await asyncio.sleep(600)
+            if not market_open():
+                engine.log("info", "السوق مغلق (ويكند) — السماح للخادم بالنوم")
+                return
             try:
                 await c.get(f"{url}/api/health")
             except Exception as e:

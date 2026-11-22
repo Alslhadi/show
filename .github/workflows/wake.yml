@@ -1,0 +1,17 @@
+# Wakes the Render free instance when the FX/gold market reopens (Sunday ~21:00 UTC = Monday 01:00 UAE).
+# Set APP_URL below after the first deploy.
+name: wake-on-market-open
+on:
+  schedule:
+    - cron: "5 21 * * 0"   # Sunday 21:05 UTC
+    - cron: "20 21 * * 0"  # backup
+    - cron: "0 22 * * 0"   # backup
+  workflow_dispatch:
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          for i in 1 2 3; do curl -fsS --max-time 90 "$APP_URL/api/health" && break; sleep 30; done
+        env:
+          APP_URL: https://aitrader.onrender.com
