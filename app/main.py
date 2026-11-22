@@ -34,17 +34,8 @@ engine = Engine(make_broker())
 
 
 def market_open(now=None) -> bool:
-    """FX/gold week: Sunday 21:00 UTC -> Friday 21:00 UTC (= Mon 01:00 -> Sat 01:00 UAE)."""
-    from datetime import datetime, timezone
-    now = now or datetime.now(timezone.utc)
-    wd, h = now.weekday(), now.hour  # Mon=0 .. Sun=6
-    if wd == 5:
-        return False
-    if wd == 4 and h >= 21:
-        return False
-    if wd == 6 and h < 21:
-        return False
-    return True
+    from .main_hours import fx_market_open
+    return fx_market_open(now)
 
 
 async def keep_awake() -> None:
@@ -59,7 +50,7 @@ async def keep_awake() -> None:
     async with httpx.AsyncClient(timeout=20) as c:
         while True:
             await asyncio.sleep(600)
-            if not market_open():
+            if not market_open() and not settings.keep_awake_weekends:
                 engine.log("info", "السوق مغلق (ويكند) — السماح للخادم بالنوم")
                 return
             try:

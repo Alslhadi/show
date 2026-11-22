@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     trailing_atr: float = 1.0  # after TP1, trail SL by 1 ATR of the setup timeframe
     max_hold_minutes: int = 240  # close stale scalps
     close_before_weekend: bool = True
+    # Symbols that trade 7 days a week (crypto). Others are skipped while FX/gold is closed.
+    always_open_symbols: str = "BTCUSD"
+    keep_awake_weekends: bool = True  # keep the Render instance awake on weekends for crypto
 
     # --- Risk hard limits -------------------------------------------------
     # Aggressive but never martingale: risk is a fixed % of current equity,

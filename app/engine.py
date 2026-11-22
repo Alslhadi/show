@@ -201,7 +201,12 @@ class Engine:
         risk_engine.update_equity(acc, new_day=False)
         closed_before = len(self.broker.history(1000))
         self.manage_positions()
+        from .main_hours import fx_market_open
+        always = {x.strip().upper() for x in settings.always_open_symbols.split(",") if x.strip()}
+        fx_open = fx_market_open()
         for sym in settings.symbol_list:
+            if sym not in always and not fx_open:
+                continue  # gold/FX closed: crypto keeps trading
             try:
                 m5 = self.broker.candles(sym, settings.tf_entry, 2)
                 last = float(m5["time"].iloc[-1])
