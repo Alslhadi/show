@@ -168,9 +168,22 @@ class Engine:
 
     # ---- loop ----------------------------------------------------------------
     async def run(self, interval: float = 2.0) -> None:
-        if not self.broker.connected():
-            self.broker.connect()
+        next_connect = 0.0
         while True:
+            if not self.broker.connected():
+                if time.time() >= next_connect:
+                    ok = await asyncio.to_thread(self.broker.connect)
+                    if ok:
+                        self.log("info", f"متصل بالوسيط {self.broker.name}")
+                    else:
+                        err = getattr(self.broker, "last_error", "")
+                        self.log("error", f"فشل الاتصال بالوسيط: {err} — إعادة المحاولة بعد 60 ثانية")
+                        next_connect = time.time() + 60
+                if not self.broker.connected():
+                    self.status.update(loop_ok=False, error="الوسيط غير متصل")
+                    await self.broadcast()
+                    await asyncio.sleep(5)
+                    continue
             try:
                 self.broker.step()
                 acc = self.broker.account()
@@ -194,15 +207,15 @@ class Engine:
             except Exception as e:
                 self.status.update(loop_ok=False, error=str(e))
                 self.log("error", f"خطأ في الحلقة: {e}")
-                try:
-                    self.broker.connect()
-                except Exception:
-                    pass
+                await asyncio.sleep(10)  # back off; never hammer the broker
             await self.broadcast()
             await asyncio.sleep(interval)
 
     def snapshot(self) -> dict:
-        acc = self.broker.account() if self.broker.connected() else None
+        try:
+            acc = self.broker.account() if self.broker.connected() else None
+        except Exception:
+            acc = None
         hist = self.broker.history(200)
         wins = [h for h in hist if h.get("profit", 0) > 0]
         losses = [h for h in hist if h.get("profit", 0) < 0]

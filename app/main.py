@@ -70,9 +70,9 @@ async def keep_awake() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    task = asyncio.create_task(engine.run(interval=2.0))
+    task = asyncio.create_task(engine.run(interval=5.0 if settings.data_source.upper() == "EXNESS" else 2.0))
     pinger = asyncio.create_task(keep_awake())
-    if settings.exn_api_key and settings.exn_private_key:
+    if settings.exn_api_key and settings.exn_private_key and settings.data_source.upper() != "EXNESS":
         async def startup_check():
             r = await asyncio.to_thread(exness_test)
             safe = {k: r.get(k) for k in ("ok", "message", "open_positions", "active_orders", "symbols")}

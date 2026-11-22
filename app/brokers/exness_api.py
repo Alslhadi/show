@@ -88,6 +88,7 @@ class ExnessClient:
         # never follow redirects with signed headers (as in the official example)
         self.http = httpx.Client(timeout=timeout, follow_redirects=False)
         self.base_url: str | None = None  # Access Point, resolved once and cached
+        self._discovery_blocked_until = 0.0
 
     def _request(self, method: str, path: str, body: dict | None = None, idempotent: bool = False,
                  host: str | None = None) -> dict:
@@ -103,13 +104,29 @@ class ExnessClient:
         except ValueError:
             data = {"raw": r.text}
         if r.status_code >= 400:
-            raise RuntimeError(f"Exness {r.status_code} {path}: {data}")
+            raise ExnessError(r.status_code, data.get("code") if isinstance(data, dict) else None, data)
         return data
 
     # --- confirmed endpoints --------------------------------------------------
     def resolve_access_point(self) -> str:
-        """Discovery is rate-limited: resolve once, then cache."""
-        d = self._request("GET", f"/v1/trading/access-point?account_id={self.account_id}", host=self.gateway)
+        """Discovery is rate-limited: resolve once, then cache. Honours retry_after on 429."""
+        if self.base_url:
+            return self.base_url
+        wait = self._discovery_blocked_until - time.time()
+        if wait > 0:
+            raise RuntimeError(f"Discovery rate-limited — retry in {int(wait)}s")
+        try:
+            d = self._request("GET", f"/v1/trading/access-point?account_id={self.account_id}", host=self.gateway)
+        except ExnessError as e:
+            if e.status == 429:
+                ra = (e.data or {}).get("retry_after") if isinstance(e.data, dict) else None
+                try:
+                    from datetime import datetime
+                    until = datetime.fromisoformat(str(ra).replace("Z", "+00:00")).timestamp()
+                except Exception:
+                    until = time.time() + 60
+                self._discovery_blocked_until = max(until, time.time() + 10)
+            raise
         ap = d.get("access_point")
         if not isinstance(ap, str) or not ap.startswith("https://"):
             raise RuntimeError("رد الاكتشاف لا يحتوي access_point صالح")

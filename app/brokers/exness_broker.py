@@ -60,6 +60,8 @@ class ExnessBroker(Broker):
         self._snap: dict = {}
         self._snap_t = 0.0
         self._sent: dict[str, dict] = {}
+        self._hist: list | None = None
+        self._hist_t = 0.0
         self._ws_thread: threading.Thread | None = None
         self.last_error = ""
 
@@ -111,7 +113,7 @@ class ExnessBroker(Broker):
                 time.sleep(5)
 
     # ---- data ----------------------------------------------------------------
-    def _snapshot(self, max_age: float = 1.5) -> dict:
+    def _snapshot(self, max_age: float = 3.0) -> dict:
         if time.time() - self._snap_t > max_age:
             self._snap = self.c.snapshot()
             self._snap_t = time.time()
@@ -188,6 +190,9 @@ class ExnessBroker(Broker):
         return out
 
     def history(self, n: int = 50) -> list[dict]:
+        # cached: deal history changes rarely and REST quota is limited
+        if getattr(self, "_hist", None) is not None and time.time() - self._hist_t < 20:
+            return self._hist[:n]
         r = self.c._request("GET", f"/v1/history/accounts/{self.c.account_id}/deals?from={_iso(time.time() - 7 * 86400)}"
                                    f"&deal_type=close&limit={min(n, 200)}")
         out = []
@@ -199,7 +204,8 @@ class ExnessBroker(Broker):
                         "volume": _dec(d.get("volume")), "price_close": _dec(d.get("price")),
                         "profit": _dec(prof.get("amount") if isinstance(prof, dict) else prof),
                         "time_close": _epoch(d["create_time"]), "reason": ""})
-        return out[::-1]
+        self._hist, self._hist_t = out[::-1], time.time()
+        return self._hist[:n]
 
     # ---- trading -----------------------------------------------------------------
     def _fmt_px(self, symbol: str, x: float) -> str:
@@ -221,6 +227,7 @@ class ExnessBroker(Broker):
             s = st.get("status")
             if s == "confirmed":
                 self._snap_t = 0  # force fresh snapshot
+                self._hist = None
                 return {"ok": True, "status": s, "operation_id": op}
             if s in ("rejected", "failed"):
                 return {"ok": False, "status": s, "operation_id": op,
