@@ -526,7 +526,7 @@ function setVol(v){VOL=Math.max(0.05,Math.min(1,Math.round(v*100)/100));try{if(a
 let renderVol=()=>{};
 function initAudioCtx(){try{if(!actx){actx=new (window.AudioContext||window.webkitAudioContext)();mGain=actx.createGain();mGain.gain.value=0;mGain.connect(actx.destination);
  const b=atob(document.getElementById('musicB64').textContent.trim());const u=new Uint8Array(b.length);for(let k=0;k<b.length;k++)u[k]=b.charCodeAt(k);
- actx.decodeAudioData(u.buffer,buf=>{mBuf=buf;if(document.body.classList.contains('live')&&S[cur]&&S[cur].k==='welcome')musicPlay()},()=>{})}if(actx.state==='suspended')actx.resume()}catch(e){}}
+ actx.decodeAudioData(u.buffer,buf=>{mBuf=buf},()=>{})}if(actx.state==='suspended')actx.resume()}catch(e){}}
 function musicPlay(){if(!actx||!mBuf)return;if(actx.state==='suspended')actx.resume();const now=actx.currentTime;
  if(!mSrc){mSrc=actx.createBufferSource();mSrc.buffer=mBuf;mSrc.loop=true;mSrc.connect(mGain);mSrc.start()}
  mGain.gain.cancelScheduledValues(now);mGain.gain.setValueAtTime(mGain.gain.value,now);mGain.gain.linearRampToValueAtTime(VOL,now+3.5);musicOn=true;audioState()}
@@ -543,7 +543,7 @@ function audioCmd(a){if(!document.body.classList.contains('live'))return;const k
 function audioFor(i){if(!document.body.classList.contains('live'))return;const k=audOf(i);
  Object.values(AUD).forEach(x=>{if(x!==k)fadeStop(x)});if(k!=='music')musicStop();
  // the welcome screen always opens with the calm music; the break and lunch screens wait for the phone
- if(S[i]&&S[i].k==='welcome'&&!musicOn)musicPlay()}
+ }
 let audioState=()=>{document.body.dataset.music=musicOn?'on':'off'};
 [anthem,quran].forEach(el=>el.addEventListener('ended',()=>audioState()));
 // navigation: forward = content moves right, next arrives from the left (Arabic page turn)
