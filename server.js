@@ -11,15 +11,26 @@ const PUB = fs.existsSync(path.join(__dirname, 'public', 'index.html')) ? path.j
 let current = 0;                                 // current slide index
 let vol = 0.3;                                   // music/recitation volume (0–1), starts quiet
 
+const TYPES = { '.html': 'text/html; charset=utf-8', '.mp4': 'video/mp4', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg' };
 const server = http.createServer((req, res) => {
-  const url = req.url.split('?')[0].split('#')[0];
+  const url = decodeURIComponent(req.url.split('?')[0].split('#')[0]);
   const file = path.join(PUB, url === '/' ? 'index.html' : url);
   if (!file.startsWith(PUB)) { res.writeHead(403); return res.end(); }
-  fs.readFile(file, (err, data) => {
-    if (err) { res.writeHead(404); return res.end('Not found'); }
-    const type = file.endsWith('.html') ? 'text/html; charset=utf-8' : 'application/octet-stream';
-    res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-cache' });
-    res.end(data);
+  fs.stat(file, (err, st) => {
+    if (err || !st.isFile()) { res.writeHead(404); return res.end('Not found'); }
+    const type = TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream';
+    const range = req.headers.range;
+    // video needs byte ranges so browsers (Safari above all) can stream and seek it
+    if (range && /^bytes=/.test(range)) {
+      let [a, b] = range.replace('bytes=', '').split('-');
+      let start = parseInt(a, 10), end = b ? parseInt(b, 10) : st.size - 1;
+      if (isNaN(start)) { start = st.size - end; end = st.size - 1; }
+      if (start >= st.size || end >= st.size || start > end) { res.writeHead(416, { 'Content-Range': `bytes */${st.size}` }); return res.end(); }
+      res.writeHead(206, { 'Content-Type': type, 'Content-Range': `bytes ${start}-${end}/${st.size}`, 'Accept-Ranges': 'bytes', 'Content-Length': end - start + 1, 'Cache-Control': 'no-cache' });
+      return fs.createReadStream(file, { start, end }).pipe(res);
+    }
+    res.writeHead(200, { 'Content-Type': type, 'Content-Length': st.size, 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-cache' });
+    fs.createReadStream(file).pipe(res);
   });
 });
 
