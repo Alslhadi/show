@@ -29,7 +29,8 @@ class Settings(BaseSettings):
     mt5_server: str | None = None
     mt5_path: str | None = None
     exn_api_key: str | None = None
-    exn_private_key_path: str | None = None
+    exn_private_key: str | None = None
+    exn_discovery_base_url: str | None = None
     exn_account_id: str | None = None
     mt5_magic: int = 515151
     # Exness account types may suffix symbols (e.g. "m" -> XAUUSDm). Check Market Watch.

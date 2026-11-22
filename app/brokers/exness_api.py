@@ -33,11 +33,22 @@ def b64url_nopad(b: bytes) -> str:
     return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
 
 
-def load_private_key(path: str) -> Ed25519PrivateKey:
-    with open(path, "rb") as f:
-        key = serialization.load_pem_private_key(f.read(), password=None)
-    if not isinstance(key, Ed25519PrivateKey):
-        raise ValueError("المفتاح ليس Ed25519 — Exness API يتطلب Ed25519")
+def load_private_key(text: str) -> Ed25519PrivateKey:
+    """Accepts what Key Management gives you: 128 hex chars (32-byte seed + 32-byte public
+    key), or a PKCS#8 PEM. Checks that the public half matches, as the official example does."""
+    t = text.strip()
+    if t.startswith("-----BEGIN"):
+        key = serialization.load_pem_private_key(t.encode(), password=None)
+        if not isinstance(key, Ed25519PrivateKey):
+            raise ValueError("المفتاح ليس Ed25519")
+        return key
+    if len(t) != 128 or any(c not in "0123456789abcdefABCDEF" for c in t):
+        raise ValueError("المفتاح السري يجب أن يكون 128 حرف hex أو PEM")
+    raw = bytes.fromhex(t)
+    key = Ed25519PrivateKey.from_private_bytes(raw[:32])
+    pub = key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    if pub != raw[32:]:
+        raise ValueError("النصف العام من المفتاح لا يطابق — تأكد من نسخه كاملاً")
     return key
 
 
@@ -65,19 +76,28 @@ def signed_headers(api_key: str, key: Ed25519PrivateKey, method: str, path_with_
 
 
 class ExnessClient:
-    def __init__(self, api_key: str, private_key_path: str, account_id: str,
-                 base_url: str = "https://api.exness.com", timeout: float = 10.0) -> None:
-        self.api_key, self.account_id, self.base_url = api_key, str(account_id), base_url.rstrip("/")
-        self.key = load_private_key(private_key_path)
-        self.http = httpx.Client(timeout=timeout)
+    def __init__(self, api_key: str, private_key: str, account_id: str, gateway_url: str,
+                 timeout: float = 15.0) -> None:
+        if not str(account_id).isdigit():
+            raise ValueError("EXN_ACCOUNT_ID يجب أن يكون رقماً")
+        if not gateway_url.startswith("https://"):
+            raise ValueError("EXN_DISCOVERY_BASE_URL يجب أن يبدأ بـ https:// (من DNS widget في Key Management)")
+        self.api_key, self.account_id = api_key, str(account_id)
+        self.gateway = gateway_url.rstrip("/")
+        self.key = load_private_key(private_key)
+        # never follow redirects with signed headers (as in the official example)
+        self.http = httpx.Client(timeout=timeout, follow_redirects=False)
+        self.base_url: str | None = None  # Access Point, resolved once and cached
 
-    def _request(self, method: str, path: str, body: dict | None = None, idempotent: bool = False) -> dict:
+    def _request(self, method: str, path: str, body: dict | None = None, idempotent: bool = False,
+                 host: str | None = None) -> dict:
+        host = host or self.base_url or self.resolve_access_point()
         raw = b"" if body is None else json.dumps(body, separators=(",", ":")).encode()
         idem = uuid.uuid4().hex if idempotent else ""
         h = signed_headers(self.api_key, self.key, method, path, raw, idem)
         if body is not None:
             h["Content-Type"] = "application/json"
-        r = self.http.request(method, self.base_url + path, content=raw or None, headers=h)
+        r = self.http.request(method, host + path, content=raw or None, headers=h)
         try:
             data = r.json()
         except ValueError:
@@ -87,8 +107,14 @@ class ExnessClient:
         return data
 
     # --- confirmed endpoints --------------------------------------------------
-    def discover_host(self) -> dict:
-        return self._request("GET", f"/v1/trading/access-point?account_id={self.account_id}")
+    def resolve_access_point(self) -> str:
+        """Discovery is rate-limited: resolve once, then cache."""
+        d = self._request("GET", f"/v1/trading/access-point?account_id={self.account_id}", host=self.gateway)
+        ap = d.get("access_point")
+        if not isinstance(ap, str) or not ap.startswith("https://"):
+            raise RuntimeError("رد الاكتشاف لا يحتوي access_point صالح")
+        self.base_url = ap.rstrip("/")
+        return self.base_url
 
     def account_config(self) -> dict:
         return self._request("GET", f"/v1/configuration/accounts/{self.account_id}/account")
