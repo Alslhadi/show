@@ -31,12 +31,31 @@ def make_broker():
 engine = Engine(make_broker())
 
 
+async def keep_awake() -> None:
+    """Render free instances sleep after 15 min without inbound traffic.
+    Ping our own public URL every 10 min so the trading loop keeps running."""
+    import os
+    import httpx
+    url = os.getenv("RENDER_EXTERNAL_URL")  # set automatically by Render
+    if not url:
+        return
+    async with httpx.AsyncClient(timeout=20) as c:
+        while True:
+            await asyncio.sleep(600)
+            try:
+                await c.get(f"{url}/api/health")
+            except Exception as e:
+                engine.log("warn", f"keep-awake ping failed: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     task = asyncio.create_task(engine.run(interval=2.0))
+    pinger = asyncio.create_task(keep_awake())
     engine.log("info", f"بدء النظام — المصدر: {engine.broker.name}، وضع التنفيذ: {engine.execution_mode}")
     yield
     task.cancel()
+    pinger.cancel()
 
 
 app = FastAPI(title="AI Trading Command Center", lifespan=lifespan)
