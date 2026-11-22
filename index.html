@@ -136,6 +136,7 @@ body.live:not(.idle) .ctl{opacity:1;pointer-events:auto}
 }
 
 .two{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
+@media (max-width:700px){#start .two{flex-direction:column;align-items:stretch;width:min(320px,calc(100vw - 32px))}#start .two button{width:100%}#start .keys{display:none}}
 #remoteBtn{font-family:var(--f);font-size:22px;font-weight:700;color:var(--navy);background:#fff;border:2px solid var(--navy);border-radius:999px;padding:16px 36px;cursor:pointer}
 #remoteBtn:focus-visible,#remote button:focus-visible{outline:3px solid var(--violet);outline-offset:3px}
 #wrap[hidden],#remote[hidden]{display:none!important}
@@ -207,7 +208,7 @@ i.ok{background:rgba(63,126,92,.16);color:#2E6A49}i.ab{background:rgba(200,60,60
 .eq{display:flex;align-items:center;gap:14px}.eq span{background:#fff;border-radius:16px;padding:8px 22px;display:flex;flex-direction:column;align-items:center;box-shadow:0 6px 18px rgba(11,42,91,.08)}
 .eq small{font-size:14px;color:#4A5E80}.eq b{font-size:30px;line-height:1.1}.eq em{font-style:normal;font-size:30px;color:#7A4FC9;font-weight:700}
 .eq .tot{background:#7A4FC9;color:#fff}.eq .tot small{color:#E7DDF8}
-.two{display:grid;grid-template-columns:430px 1fr;gap:22px;height:100%}.two.eq2{grid-template-columns:1fr 1fr}
+.dk .two{display:grid;grid-template-columns:430px 1fr;gap:22px;height:100%}.dk .two.eq2{grid-template-columns:1fr 1fr}
 .col{display:flex;flex-direction:column;gap:16px}
 .card{background:#fff;border-radius:20px;box-shadow:0 14px 40px rgba(11,42,91,.10);padding:20px 24px}
 .card h3{margin:0 0 10px;font-size:22px;font-weight:700;display:flex;align-items:center;gap:10px}
@@ -245,7 +246,7 @@ i.ok{background:rgba(63,126,92,.16);color:#2E6A49}i.ab{background:rgba(200,60,60
 
 /* larger type for the room */
 .tb th{font-size:16px}.tb td{font-size:19.5px;padding:7px 5px}.t15 td{font-size:19px}.tb.tight td{font-size:17px;padding:2px 5px}
-.two .tb th{font-size:17px;padding:12px 6px}.two .tb td{font-size:22px;padding:15px 8px}.two .tb tfoot td{font-size:22px;padding:12px}
+.dk .two .tb th{font-size:17px;padding:12px 6px}.dk .two .tb td{font-size:22px;padding:15px 8px}.dk .two .tb tfoot td{font-size:22px;padding:12px}
 .fields .fr{font-size:20px;padding:12px 0}.card h3{font-size:25px}
 .tch{font-size:24px}.tch .cv{font-size:17px}.mo{font-size:18px}
 .kv div{font-size:22px;padding:10px 2px}.kv small{font-size:14.5px}
