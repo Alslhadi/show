@@ -50,12 +50,17 @@ class Engine:
         is_demo = getattr(self.broker, "is_demo", lambda: False)()
         return not is_demo
 
+    def _preconfirmed(self) -> bool:
+        acc = getattr(self.broker, "account_details", lambda: {})() or {}
+        return bool(settings.live_trading_enabled and settings.live_confirmed_account
+                    and str(acc.get("account_id")) == str(settings.live_confirmed_account))
+
     def trading_permitted(self) -> tuple[bool, str]:
         if risk_engine.state.kill_switch:
             return False, f"KILL SWITCH: {risk_engine.state.kill_reason}"
         if not self.broker.connected():
             return False, "الوسيط غير متصل"
-        if self.account_is_real() and not (settings.live_trading_enabled and self.live_confirmed):
+        if self.account_is_real() and not (settings.live_trading_enabled and (self.live_confirmed or self._preconfirmed())):
             return False, "حساب حقيقي — التداول الحي غير مفعّل (يتطلب LIVE_TRADING_ENABLED وتأكيداً منفصلاً)"
         return True, ""
 
@@ -207,7 +212,7 @@ class Engine:
             "server_time": time.time(),
             "broker": self.broker.name, "simulation": self.broker.is_simulation,
             "connected": self.broker.connected(), "account_real": self.account_is_real(),
-            "trading_mode": "LIVE" if (self.account_is_real() and self.live_confirmed) else "DEMO",
+            "trading_mode": "LIVE" if (self.account_is_real() and (self.live_confirmed or self._preconfirmed())) else "DEMO",
             "execution_mode": self.execution_mode, "trading_permitted": ok, "blocked_reason": why,
             "account": acc.__dict__ if acc else None,
             "positions": self.broker.positions(),

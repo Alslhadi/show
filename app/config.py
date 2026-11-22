@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     # AND a separate confirmation from the dashboard (see /api/mode).
     trading_mode: str = "DEMO"
     live_trading_enabled: bool = False
+    # Account number the owner has explicitly authorised for automated trading. Persisting it here
+    # avoids re-confirming after every restart; any OTHER account still needs the dashboard phrase.
+    live_confirmed_account: str | None = None
     # execution: MANUAL | ASSISTED | SEMI_AUTO | AUTO
     execution_mode: str = "AUTO"
 

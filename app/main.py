@@ -75,7 +75,7 @@ async def lifespan(app: FastAPI):
     if settings.exn_api_key and settings.exn_private_key:
         async def startup_check():
             r = await asyncio.to_thread(exness_test)
-            safe = {k: r.get(k) for k in ("ok", "message", "open_positions", "active_orders")}
+            safe = {k: r.get(k) for k in ("ok", "message", "open_positions", "active_orders", "symbols")}
             if r.get("ok"):
                 a = r.get("account") or {}
                 safe.update(account_id=a.get("account_id"), account_name=a.get("account_name"),
@@ -140,7 +140,16 @@ def exness_test():
         ap = c.resolve_access_point()
         details = c.account_config()
         snap = c.snapshot()
-        return {"ok": True, "access_point": ap, "account": details, "account_state": snap.get("account_state"),
+        avail = c._request("GET", f"/v1/configuration/accounts/{c.account_id}/instruments").get("instruments", [])
+        syms = {}
+        for sym in settings.symbol_list:
+            if sym in avail:
+                cnd = c._request("GET", f"/v1/configuration/accounts/{c.account_id}/instruments/{sym}/conditions")
+                syms[sym] = {k: cnd.get(k) for k in ("point_digits", "contract_size", "volume_min", "volume_step",
+                                                     "exec_mode", "quote_currency")}
+            else:
+                syms[sym] = {"missing": True, "similar": [a for a in avail if a.upper().startswith(sym[:6])][:5]}
+        return {"ok": True, "symbols": syms, "access_point": ap, "account": details, "account_state": snap.get("account_state"),
                 "open_positions": len(snap.get("positions", [])), "active_orders": len(snap.get("orders", []))}
     except Exception as e:
         return {"ok": False, "message": str(e)}
