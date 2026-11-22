@@ -30,6 +30,11 @@ class FakeExness:
             assert req.url.host == "gateway.test"
             return httpx.Response(200, json={"access_point": "https://ap.test", "account_id": "777"})
         assert req.url.host == "ap.test"
+        if p.endswith("/limits"):
+            return httpx.Response(200, json={"limits": {"rest": {"global_account_rate": {"limit": 600, "window_seconds": 60},
+                                  "methods": [{"api_operation_id": "getCandleHistory", "http_method": "GET",
+                                               "path": "/v1/market-data/accounts/{account_id}/candles",
+                                               "rate_limit": {"limit": 100, "window_seconds": 60}}]}}})
         if p.endswith("/account"):
             return httpx.Response(200, json={"account_id": "777", "account_name": "Demo Standard", "create_date": "2026-01-01T00:00:00Z",
                                              "settings": {"currency": "USD", "leverage": "1:500", "trade_mode": "enabled",

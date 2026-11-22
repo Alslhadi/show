@@ -19,8 +19,11 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
+import threading
 import time
 import uuid
+from collections import deque
 
 import httpx
 from cryptography.hazmat.primitives import serialization
@@ -75,6 +78,60 @@ def signed_headers(api_key: str, key: Ed25519PrivateKey, method: str, path_with_
     }
 
 
+class RateLimiter:
+    """Client-side sliding-window limiter fed by GET .../limits (the server returns configured limits,
+    not remaining quota, so the client must count its own requests)."""
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.global_rule: tuple[int, int] | None = None
+        self.rules: list[tuple[str, re.Pattern, str, int, int]] = []  # (method, path_re, op_id, limit, window)
+        self.hist: dict[str, deque] = {}
+
+    def load(self, limits: dict) -> None:
+        rest = (limits.get("limits") or limits).get("rest", {})
+        g = rest.get("global_account_rate")
+        if g:
+            self.global_rule = (int(g["limit"]), int(g["window_seconds"]))
+        for m in rest.get("methods", []):
+            rl = m.get("rate_limit") or {}
+            if not rl:
+                continue
+            pat = re.compile("^" + re.sub(r"\{[^}]+\}", r"[^/]+", m["path"]) + "$")
+            self.rules.append((m["http_method"].upper(), pat, m["api_operation_id"], int(rl["limit"]), int(rl["window_seconds"])))
+
+    def _wait_for(self, key: str, limit: int, window: int, now: float) -> float:
+        q = self.hist.setdefault(key, deque())
+        while q and now - q[0] >= window:
+            q.popleft()
+        # keep a 10% safety margin
+        cap = max(1, int(limit * 0.9))
+        return 0.0 if len(q) < cap else window - (now - q[0]) + 0.05
+
+    def acquire(self, method: str, path: str) -> None:
+        path = path.split("?", 1)[0]
+        rule = next((r for r in self.rules if r[0] == method and r[1].match(path)), None)
+        while True:
+            with self.lock:
+                now = time.time()
+                waits = []
+                if self.global_rule:
+                    waits.append(self._wait_for("__global__", *self.global_rule, now))
+                if rule:
+                    waits.append(self._wait_for(rule[2], rule[3], rule[4], now))
+                w = max(waits, default=0.0)
+                if w <= 0:
+                    if self.global_rule:
+                        self.hist["__global__"].append(now)
+                    if rule:
+                        self.hist[rule[2]].append(now)
+                    return
+            time.sleep(min(w, 5.0))
+
+    def summary(self) -> dict:
+        return {"global": self.global_rule, "methods": {r[2]: f"{r[3]}/{r[4]}s" for r in self.rules}}
+
+
 class ExnessClient:
     def __init__(self, api_key: str, private_key: str, account_id: str, gateway_url: str,
                  timeout: float = 15.0) -> None:
@@ -89,10 +146,13 @@ class ExnessClient:
         self.http = httpx.Client(timeout=timeout, follow_redirects=False)
         self.base_url: str | None = None  # Access Point, resolved once and cached
         self._discovery_blocked_until = 0.0
+        self.limiter = RateLimiter()
 
     def _request(self, method: str, path: str, body: dict | None = None, idempotent: bool = False,
                  host: str | None = None) -> dict:
         host = host or self.base_url or self.resolve_access_point()
+        if host != self.gateway:
+            self.limiter.acquire(method.upper(), path)
         raw = b"" if body is None else json.dumps(body, separators=(",", ":")).encode()
         idem = uuid.uuid4().hex if idempotent else ""
         h = signed_headers(self.api_key, self.key, method, path, raw, idem)
@@ -139,6 +199,11 @@ class ExnessClient:
     def rate_limits(self) -> dict:
         return self._request("GET", f"/v1/configuration/accounts/{self.account_id}/limits")
 
+    def load_limits(self) -> dict:
+        data = self.rate_limits()
+        self.limiter.load(data)
+        return self.limiter.summary()
+
     def ws_events_path(self) -> str:
         return f"/v1/server-events/accounts/{self.account_id}/ws/events"
 
@@ -150,12 +215,13 @@ class ExnessClient:
         """Mutating signed request (idempotency key 5..128 chars). Returns the ACK."""
         if not 5 <= len(idempotency_key) <= 128:
             raise ValueError("idempotency key must be 5..128 chars")
+        base = self.base_url or self.resolve_access_point()
+        self.limiter.acquire(method.upper(), path_with_query)
         raw = b"" if body is None else json.dumps(body, separators=(",", ":")).encode()
         h = signed_headers(self.api_key, self.key, method, path_with_query, raw, idempotency_key)
         if body is not None:
             h["Content-Type"] = "application/json"
-        r = self.http.request(method, (self.base_url or self.resolve_access_point()) + path_with_query,
-                              content=raw or None, headers=h)
+        r = self.http.request(method, base + path_with_query, content=raw or None, headers=h)
         data = r.json() if r.content else {}
         if r.status_code >= 400:
             raise ExnessError(r.status_code, data.get("code"), data)

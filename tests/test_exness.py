@@ -30,3 +30,17 @@ def test_ticks_subscription_payload():
 def test_error_hint():
     from app.brokers.exness_api import ExnessError
     assert "INVALID_VOLUME" in str(ExnessError(400, 5000, {}))
+
+
+def test_rate_limiter_blocks_when_full():
+    import time
+    from app.brokers.exness_api import RateLimiter
+    rl = RateLimiter()
+    rl.load({"limits": {"rest": {"global_account_rate": {"limit": 100, "window_seconds": 60},
+             "methods": [{"api_operation_id": "getCandleHistory", "http_method": "GET",
+                          "path": "/v1/market-data/accounts/{account_id}/candles",
+                          "rate_limit": {"limit": 3, "window_seconds": 1}}]}}})
+    t = time.time()
+    for _ in range(3):
+        rl.acquire("GET", "/v1/market-data/accounts/1/candles?x=1")
+    assert time.time() - t >= 0.9  # 90% cap -> 2 per window, third waits

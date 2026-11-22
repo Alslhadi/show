@@ -186,37 +186,40 @@ class Engine:
                     await asyncio.sleep(5)
                     continue
             try:
-                self.broker.step()
-                acc = self.broker.account()
-                today = datetime.now(timezone.utc)
-                risk_engine.update_equity(acc, new_day=False)
-                closed_before = len(self.broker.history(1000))
-                self.manage_positions()
-                for sym in settings.symbol_list:
-                    try:
-                        m5 = self.broker.candles(sym, settings.tf_entry, 2)
-                        last = float(m5["time"].iloc[-1])
-                        if self.last_m5.get(sym) != last:  # evaluate once per closed entry-TF candle
-                            self.last_m5[sym] = last
-                            self.on_card(self.analyze_symbol(sym))
-                    except Exception as e:  # one bad symbol must not stop the loop
-                        self.log("error", f"تحليل {sym} فشل: {e}")
-                new_hist = self.broker.history(1000)
-                for h in new_hist[: max(0, len(new_hist) - closed_before)]:
-                    risk_engine.record_result(h.get("profit", 0))
-                self.status.update(loop_ok=True, last_loop=today.timestamp(), error=None)
-                if time.time() - getattr(self, "_hb", 0) > 300:  # heartbeat every 5 min
-                    self._hb = time.time()
-                    grades = {k: f"{v.get('grade')}:{v.get('score')}" for k, v in self.signals.items()}
-                    print("HEARTBEAT", json.dumps({"equity": acc.equity, "balance": acc.balance,
-                          "open": len(self.broker.positions()), "permitted": self.trading_permitted(),
-                          "mode": self.execution_mode, "signals": grades}, ensure_ascii=False, default=str), flush=True)
+                await asyncio.to_thread(self._iteration)
             except Exception as e:
                 self.status.update(loop_ok=False, error=str(e))
                 self.log("error", f"خطأ في الحلقة: {e}")
                 await asyncio.sleep(10)  # back off; never hammer the broker
             await self.broadcast()
             await asyncio.sleep(interval)
+
+    def _iteration(self) -> None:
+        self.broker.step()
+        acc = self.broker.account()
+        today = datetime.now(timezone.utc)
+        risk_engine.update_equity(acc, new_day=False)
+        closed_before = len(self.broker.history(1000))
+        self.manage_positions()
+        for sym in settings.symbol_list:
+            try:
+                m5 = self.broker.candles(sym, settings.tf_entry, 2)
+                last = float(m5["time"].iloc[-1])
+                if self.last_m5.get(sym) != last:  # evaluate once per closed entry-TF candle
+                    self.last_m5[sym] = last
+                    self.on_card(self.analyze_symbol(sym))
+            except Exception as e:  # one bad symbol must not stop the loop
+                self.log("error", f"تحليل {sym} فشل: {e}")
+        new_hist = self.broker.history(1000)
+        for h in new_hist[: max(0, len(new_hist) - closed_before)]:
+            risk_engine.record_result(h.get("profit", 0))
+        self.status.update(loop_ok=True, last_loop=today.timestamp(), error=None)
+        if time.time() - getattr(self, "_hb", 0) > 300:  # heartbeat every 5 min
+            self._hb = time.time()
+            grades = {k: f"{v.get('grade')}:{v.get('score')}" for k, v in self.signals.items()}
+            print("HEARTBEAT", json.dumps({"equity": acc.equity, "balance": acc.balance,
+                  "open": len(self.broker.positions()), "permitted": self.trading_permitted(),
+                  "mode": self.execution_mode, "signals": grades}, ensure_ascii=False, default=str), flush=True)
 
     def snapshot(self) -> dict:
         try:
@@ -253,7 +256,7 @@ class Engine:
     async def broadcast(self) -> None:
         if not self.subscribers:
             return
-        msg = json.dumps(self.snapshot(), ensure_ascii=False, default=str)
+        msg = await asyncio.to_thread(lambda: json.dumps(self.snapshot(), ensure_ascii=False, default=str))
         for q in list(self.subscribers):
             if q.qsize() < 5:
                 q.put_nowait(msg)

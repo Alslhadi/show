@@ -69,6 +69,12 @@ class ExnessBroker(Broker):
     def connect(self) -> bool:
         try:
             self.c.resolve_access_point()
+            if not self.c.limiter.rules:
+                try:
+                    print("EXNESS_LIMITS", json.dumps(self.c.load_limits(), ensure_ascii=False), flush=True)
+                except Exception as e:  # keep working with conservative pacing
+                    print("EXNESS_LIMITS_UNAVAILABLE", e, flush=True)
+                    self.c.limiter.global_rule = (60, 60)
             self._details = self.c.account_config()
             self._ok = True
             self._start_ticks()
