@@ -183,3 +183,22 @@ def test_cooldown_blocks_reentry():
     card = {"symbol": "XAUUSD", "grade": "STRONG", "direction": "BUY", "auto_ok": True, "id": "c1"}
     e.on_card(card)
     assert not b.positions()
+
+
+def test_boost_only_when_green_and_strong():
+    from app.engine import Engine
+    from app.risk import risk_engine
+    risk_engine.release()
+    b = PaperBroker(["XAUUSD"], balance=1000.0)
+    e = Engine(b)
+    st = risk_engine.state
+    st.consecutive_losses = 0
+    card = {"symbol": "XAUUSD", "grade": "STRONG", "lots": 0.30}
+    st.day_start_equity = 2000.0  # day is red
+    assert e._maybe_boost(card, "auto")["lots"] == 0.30
+    st.day_start_equity = 900.0  # day is green
+    assert e._maybe_boost(card, "auto")["lots"] > 0.30
+    assert e._maybe_boost({**card, "grade": "MODERATE"}, "auto")["lots"] == 0.30
+    st.consecutive_losses = 1
+    assert e._maybe_boost(card, "auto")["lots"] == 0.30
+    st.consecutive_losses = 0

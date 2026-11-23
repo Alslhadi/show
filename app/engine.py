@@ -11,7 +11,7 @@ from pathlib import Path
 from .brokers.base import Broker
 from .config import settings
 from .decision import evaluate
-from .risk import risk_engine
+from .risk import risk_engine, round_volume
 
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
@@ -94,6 +94,7 @@ class Engine:
         if card.get("grade") in (None, "NO_TRADE") or not card.get("lots"):
             return {"ok": False, "message": "لا توجد صفقة صالحة"}
         sym, d = card["symbol"], card["direction"]
+        card = self._maybe_boost(card, source)
         t = self.broker.tick(sym)
         entry = t["ask"] if d == "BUY" else t["bid"]
         spec, acc = self.broker.spec(sym), self.broker.account()
@@ -117,6 +118,27 @@ class Engine:
         else:
             self.log("error", "فشل التنفيذ", symbol=sym, result=res)
         return res
+
+    def _maybe_boost(self, card: dict, source: str) -> dict:
+        """Anti-martingale: raise size only on a STRONG setup while the day is green
+        and the last trade was not a loss. Never after losses."""
+        st = risk_engine.state
+        base = settings.risk_per_trade_pct
+        boost = min(settings.boost_risk_pct, settings.max_risk_per_trade_pct)
+        try:
+            eq = self.broker.account().equity
+        except Exception:
+            return card
+        green = st.day_start_equity is not None and eq > st.day_start_equity
+        if (source == "telegram" or card.get("grade") != "STRONG" or not green
+                or st.consecutive_losses > 0 or boost <= base):
+            return card
+        spec = self.broker.spec(card["symbol"])
+        lots = round_volume(card["lots"] * boost / base, spec)
+        if lots > card["lots"]:
+            self.log("info", f"رفع اللوت (دخول قوي + اليوم رابح) {card['lots']} → {lots}", symbol=card["symbol"])
+            card = {**card, "lots": lots}
+        return card
 
     def manage_positions(self) -> None:
         """TP1: close 50% + break-even. After TP1: ATR trailing. Stale/weekend exits.

@@ -72,6 +72,7 @@ class Settings(BaseSettings):
     max_consecutive_losses: int = 5
     max_spread_to_sl_ratio: float = 0.20
     news_block_minutes: int = 15
+    boost_risk_pct: float = 5.0  # STRONG setup while the day is in profit and no loss streak -> risk up to this
     reentry_cooldown_min: int = 15  # no new entry on the same symbol for N minutes after an entry
     loss_cooldown_min: int = 30  # ...and N minutes after a losing exit on that symbol
 
