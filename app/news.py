@@ -6,11 +6,27 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import httpx
 
 FEED = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
+TV_FEED = "https://economic-calendar.tradingview.com/events"
+TV_CC = {"US": "USD", "EU": "EUR", "GB": "GBP"}
+
+
+def parse_tv(raw: dict) -> list[dict]:
+    """TradingView calendar -> same shape as the FF feed (importance 1=High, 0=Medium)."""
+    rows = []
+    for e in (raw or {}).get("result", []):
+        c = TV_CC.get(e.get("country"))
+        imp = {1: "High", 0: "Medium"}.get(e.get("importance"))
+        if not c or not imp:
+            continue
+        f, pv = e.get("forecast"), e.get("previous")
+        rows.append({"title": e.get("title", ""), "country": c, "impact": imp, "date": e.get("date", "").replace("Z", "+00:00"),
+                     "forecast": "" if f is None else str(f), "previous": "" if pv is None else str(pv)})
+    return parse(rows)
 AFFECTS = {"USD": ["XAUUSD", "BTCUSD", "EURUSD", "GBPUSD"], "EUR": ["EURUSD"], "GBP": ["GBPUSD"]}
 # indicators where a LOWER number is good for the currency
 INVERSE = ("unemployment", "jobless", "claims", "trade balance")
@@ -71,10 +87,22 @@ class NewsFeed:
                  "symbols": e["symbols"], "auto": True} for e in self.events if e["impact"] == "High"]
 
     async def refresh(self) -> None:
-        async with httpx.AsyncClient(timeout=20, headers={"User-Agent": "Mozilla/5.0"}) as c:
-            r = await c.get(FEED)
-            r.raise_for_status()
-            self.events = parse(r.json())
+        ua = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36"}
+        async with httpx.AsyncClient(timeout=20, headers=ua) as c:
+            try:
+                r = await c.get(FEED)
+                r.raise_for_status()
+                self.events, self.source = parse(r.json()), "ForexFactory"
+            except Exception as first:
+                now = datetime.utcnow()
+                params = {"from": (now - timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                          "to": (now + timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                          "countries": "US,EU,GB"}
+                r = await c.get(TV_FEED, params=params, headers={"Origin": "https://www.tradingview.com",
+                                                                  "Referer": "https://www.tradingview.com/"})
+                if r.status_code >= 400:
+                    raise RuntimeError(f"FF: {first} | TV: HTTP {r.status_code}")
+                self.events, self.source = parse_tv(r.json()), "TradingView"
             self.updated = time.time()
             self.error = ""
 
@@ -110,7 +138,7 @@ class NewsFeed:
                     await asyncio.to_thread(self._save_cache)
                 manual = [w for w in engine.news_windows if not w.get("auto")]
                 engine.news_windows = manual + self.windows()
-                print("NEWS", len(self.events), "events,", len(self.windows()), "high-impact", flush=True)
+                print("NEWS", getattr(self, "source", ""), len(self.events), "events,", len(self.windows()), "high-impact", flush=True)
                 await asyncio.sleep(3600)
             except Exception as e:
                 self.error = str(e)[:200]

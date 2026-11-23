@@ -22,3 +22,12 @@ def test_engine_blocks_on_news():
     e = Engine(PaperBroker(["XAUUSD", "EURUSD"], balance=1000.0))
     e.news_windows = [{"name": "GBP CPI", "start": time.time() + 60, "end": time.time() + 60, "symbols": ["GBPUSD"], "auto": True}]
     assert e.news_block("GBPUSD") and not e.news_block("XAUUSD")
+
+
+def test_parse_tradingview():
+    from app.news import parse_tv
+    t = (datetime.now(timezone.utc) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    ev = parse_tv({"result": [{"title": "CPI YoY", "country": "US", "importance": 1, "date": t, "forecast": 3.1, "previous": 3.0},
+                              {"title": "x", "country": "JP", "importance": 1, "date": t},
+                              {"title": "y", "country": "EU", "importance": -1, "date": t}]})
+    assert len(ev) == 1 and ev[0]["impact"] == "High" and ev[0]["forecast"] == "3.1"
