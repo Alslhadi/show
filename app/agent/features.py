@@ -9,8 +9,47 @@ import pandas as pd
 from ..indicators import adx, atr, ema, rsi
 
 REGIMES = ("TREND_UP", "TREND_DOWN", "RANGE", "CRISIS")
+def _trendline_touches(d: pd.DataFrame, L: int = 3, tol_atr: float = 0.25) -> tuple[np.ndarray, np.ndarray]:
+    """Ibn-Gaza-style trendline entries, point-in-time: draw a line through the last two *confirmed* swing lows
+    (support) / swing highs (resistance), extend it to the current bar, and fire when price tags the line and
+    rejects it (closes back on the right side with a candle in the trade direction). The line must be unbroken
+    since its second pivot. Works for rising, falling and channel lines (points 1-7 on his chart)."""
+    lo, hi, cl, op, at = (d[k].to_numpy(float) for k in ("low", "high", "close", "open", "atr"))
+    n = len(d)
+    buy, sell = np.zeros(n, bool), np.zeros(n, bool)
+    piv_lo, piv_hi = [], []
+    for i in range(2 * L, n):
+        j = i - L  # a pivot at j is confirmed once L bars to its right exist
+        if lo[j] == lo[j - L:j + L + 1].min():
+            piv_lo.append(j)
+        if hi[j] == hi[j - L:j + L + 1].max():
+            piv_hi.append(j)
+        a = at[i]
+        if not a or np.isnan(a):
+            continue
+        if len(piv_lo) >= 2:
+            p1, p2 = piv_lo[-2], piv_lo[-1]
+            if p2 - p1 >= 3:
+                slope = (lo[p2] - lo[p1]) / (p2 - p1)
+                line = lo[p2] + slope * (i - p2)
+                seg = np.arange(p2 + 1, i)
+                intact = not len(seg) or (cl[seg] >= lo[p2] + slope * (seg - p2) - 0.1 * a).all()
+                if intact and i - p2 >= 3 and lo[i] <= line + tol_atr * a and cl[i] > line and cl[i] > op[i]:
+                    buy[i] = True
+        if len(piv_hi) >= 2:
+            p1, p2 = piv_hi[-2], piv_hi[-1]
+            if p2 - p1 >= 3:
+                slope = (hi[p2] - hi[p1]) / (p2 - p1)
+                line = hi[p2] + slope * (i - p2)
+                seg = np.arange(p2 + 1, i)
+                intact = not len(seg) or (cl[seg] <= hi[p2] + slope * (seg - p2) + 0.1 * a).all()
+                if intact and i - p2 >= 3 and hi[i] >= line - tol_atr * a and cl[i] < line and cl[i] < op[i]:
+                    sell[i] = True
+    return buy, sell
+
+
 FEATURES = ["adx", "atr_pct", "rsi", "dist_ema50", "htf_agree", "htf2_agree", "z", "body", "hour_sin", "hour_cos",
-            "sig_trend", "mom10", "sweep", "zone_dist", "sig_sweep", "eq_pool"]
+            "sig_trend", "mom10", "sweep", "zone_dist", "sig_sweep", "eq_pool", "sig_tl"]
 
 
 def build(df: pd.DataFrame) -> pd.DataFrame:
@@ -61,10 +100,14 @@ def build(df: pd.DataFrame) -> pd.DataFrame:
     # liquidity-sweep reversal at a strong zone (not against a trending HTF), the "entry at liquidity" setup
     s_up = d["sweep_up"] & (d["regime"] != "TREND_DOWN") & (d["regime"] != "CRISIS") & (d["dist_lo50"] < 1.5)
     s_dn = d["sweep_dn"] & (d["regime"] != "TREND_UP") & (d["regime"] != "CRISIS") & (d["dist_hi50"] < 1.5)
-    buy, sell = t_up | r_up | s_up, t_dn | r_dn | s_dn
+    tl_b, tl_s = _trendline_touches(d)
+    tl_up = pd.Series(tl_b, index=d.index) & (d["regime"] != "CRISIS")
+    tl_dn = pd.Series(tl_s, index=d.index) & (d["regime"] != "CRISIS")
+    buy, sell = t_up | r_up | s_up | tl_up, t_dn | r_dn | s_dn | tl_dn
     d["signal"] = np.where(buy & ~sell, 1, np.where(sell & ~buy, -1, 0))
     d["sig_trend"] = np.where(t_up | t_dn, 1.0, 0.0)
     d["sig_sweep"] = np.where(s_up | s_dn, 1.0, 0.0)
+    d["sig_tl"] = np.where(tl_up | tl_dn, 1.0, 0.0)
     return d
 
 
@@ -78,6 +121,7 @@ def feature_row(d: pd.DataFrame, i: int) -> np.ndarray:
         float(r["sweep_up"] if s > 0 else r["sweep_dn"]),
         min(5.0, float(r["dist_lo50"] if s > 0 else r["dist_hi50"])) / 5,
         r["sig_sweep"], float(r["eq_highs"] if s > 0 else r["eq_lows"]),  # resting liquidity at the target side
+        r["sig_tl"],
     ], dtype=float)
 
 
