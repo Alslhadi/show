@@ -128,10 +128,12 @@ class TelegramBridge:
         async def _poll():
             """Backup to push updates (Telegram sometimes stops delivering channel updates): check every 3s."""
             last = {}
+            cutoff = time.time() - 30 * 60  # catch up on the last 30 min after a restart (DB dedupes)
             for cid in self.channels:
                 try:
-                    m = await self.client.get_messages(cid, limit=1)
-                    last[cid] = m[0].id if m else 0
+                    ms = await self.client.get_messages(cid, limit=15)
+                    old = [m for m in ms if m.date.timestamp() < cutoff]
+                    last[cid] = max((m.id for m in old), default=(min((m.id for m in ms), default=1) - 1))
                 except Exception:
                     last[cid] = 0
             while True:
