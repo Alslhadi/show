@@ -13,7 +13,7 @@ from . import features as F
 REG_AR = {"TREND_UP": "اتجاه صاعد", "TREND_DOWN": "اتجاه هابط", "RANGE": "عرضي", "CRISIS": "تقلب حاد (أزمة)"}
 
 
-def evaluate(symbol: str, df, spec, spread: float, news_blocked: str | None, equity: float, model, mode: str = "model") -> dict:
+def evaluate(symbol: str, df, spec, spread: float, news_blocked: str | None, equity: float, model, mode: str = "model", allowed: set | None = None) -> dict:
     card = {"id": uuid.uuid4().hex[:12], "symbol": symbol, "created": time.time(), "strategy": "HYBRID",
             "grade": "NO_TRADE", "direction": None, "score": 0, "gates_failed": [], "auto_ok": False, "headline": "لا صفقة"}
     g = card["gates_failed"]
@@ -34,6 +34,11 @@ def evaluate(symbol: str, df, spec, spread: float, news_blocked: str | None, equ
         return card
     direction = "BUY" if sig > 0 else "SELL"
     card["direction"] = direction
+    st = F.sig_type(d, i)
+    card["entry_type"] = F.TYPE_AR.get(st, st)
+    if allowed is not None and st not in allowed:
+        g.append(f"نوع الدخول ({F.TYPE_AR.get(st, st)}) ما ربح مؤخراً على هالسوق")
+        return card
     R = settings.hybrid_tp1_r
     card["mode"] = mode
     if mode == "model":

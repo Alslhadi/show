@@ -101,7 +101,7 @@ async def lifespan(app: FastAPI):
                             bt = await asyncio.to_thread(run)
                             bt["t"] = time.time()
                             _BT[key] = bt
-                            print("WALKFORWARD", key, json.dumps({k: bt.get(k) for k in ("out_of_sample", "in_sample", "wfe", "unfiltered")},
+                            print("WALKFORWARD", key, json.dumps({k: bt.get(k) for k in ("out_of_sample", "wfe", "unfiltered", "by_type")},
                                                                     ensure_ascii=False, default=str), flush=True)
                 except Exception as e:
                     print("MODELS_ERROR", e, flush=True)

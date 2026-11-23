@@ -150,8 +150,11 @@ class Engine:
             key = key or symbol
             df = self.broker.candles(symbol, tf, 1000)
             bt = self.backtests.get(key) or {}
+            allowed = None
+            if bt.get("by_type"):  # only entry types with a positive recent edge on this market/TF
+                allowed = {k for k, m in bt["by_type"].items() if m.get("trades", 0) >= 15 and (m.get("expectancy_r") or 0) > 0}
             card = hybrid_eval(symbol, df, self.broker.spec(symbol), t["ask"] - t["bid"], self.news_block(symbol),
-                               self.broker.account().equity, self.models.get(key), mode=bt_mode(bt))
+                               self.broker.account().equity, self.models.get(key), mode=bt_mode(bt), allowed=allowed)
             card["tf"], card["key"] = tf, key
             if tf != settings.hybrid_tf:
                 card["headline"] = f"[{tf} طويل] " + card["headline"]

@@ -154,3 +154,17 @@ def triple_barrier(d: pd.DataFrame, i: int, side: int, sl_atr: float, tp_r: floa
 def events(d: pd.DataFrame, start: int = 250) -> list[int]:
     idx = np.flatnonzero(d["signal"].values != 0)
     return [int(i) for i in idx if i >= start and not np.isnan(d["atr_pct"].iloc[i])]
+
+
+def sig_type(d: pd.DataFrame, i: int) -> str:
+    r = d.iloc[i]
+    if r.get("sig_tl", 0):
+        return "tl"
+    if r.get("sig_sweep", 0):
+        return "sweep"
+    if r.get("sig_trend", 0):
+        return "trend"
+    return "range"
+
+
+TYPE_AR = {"tl": "خطوط الترند", "sweep": "سحب سيولة", "trend": "مع الاتجاه", "range": "ارتداد عرضي"}

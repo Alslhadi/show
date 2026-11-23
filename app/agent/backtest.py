@@ -54,6 +54,10 @@ def walk_forward(df, spread: float = 0.0, windows: int = 5) -> dict:
         rows.append({"window": k + 1, "is_trades": int(take_tr.sum()), "oos_trades": int(take_te.sum()),
                      "is_exp_r": round(float(r_is.mean()), 3) if len(r_is) else None,
                      "oos_exp_r": round(float(r_oos.mean()), 3) if len(r_oos) else None})
+    # per entry type, on the most recent 40% of events (out-of-sample-ish for the raw rules: no fitting involved)
+    types = np.array([F.sig_type(d, i) for i in all_ev])
+    recent = ev >= lo + 0.6 * (hi - lo)
+    by_type = {t: _metrics(R[(types == t) & recent].tolist()) for t in ("tl", "sweep", "trend", "range")}
     is_m, oos_m = _metrics(is_R), _metrics(oos_R)
     raw = _metrics((R).tolist())
     wfe = None
@@ -61,7 +65,7 @@ def walk_forward(df, spread: float = 0.0, windows: int = 5) -> dict:
         # per-bar return ratio (OOS slices are 1/3 the IS length)
         wfe = round((oos_m["total_r"] / 1) / (is_m["total_r"] / 3), 2)
     return {"ok": True, "bars": len(d), "events": len(all_ev), "unfiltered": raw, "in_sample": is_m,
-            "out_of_sample": oos_m, "wfe": wfe, "windows": rows,
+            "out_of_sample": oos_m, "wfe": wfe, "windows": rows, "by_type": by_type,
             "verdict": verdict(oos_m, wfe)}
 
 
