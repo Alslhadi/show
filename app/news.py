@@ -78,10 +78,36 @@ class NewsFeed:
             self.updated = time.time()
             self.error = ""
 
+    def _load_cache(self) -> bool:
+        try:
+            from . import storage
+            import json
+            raw = storage.kv_get("news_cache")
+            c = json.loads(raw) if raw else None
+            if c and time.time() - c.get("updated", 0) < 6 * 3600:
+                self.events, self.updated = c["events"], c["updated"]
+                return True
+        except Exception:
+            pass
+        return False
+
+    def _save_cache(self) -> None:
+        try:
+            from . import storage
+            import json
+            storage.kv_set("news_cache", json.dumps({"events": self.events, "updated": self.updated}))
+        except Exception:
+            pass
+
     async def loop(self, engine) -> None:
+        cached = await asyncio.to_thread(self._load_cache)
         while True:
             try:
-                await self.refresh()
+                if cached:
+                    cached = False
+                else:
+                    await self.refresh()
+                    await asyncio.to_thread(self._save_cache)
                 manual = [w for w in engine.news_windows if not w.get("auto")]
                 engine.news_windows = manual + self.windows()
                 print("NEWS", len(self.events), "events,", len(self.windows()), "high-impact", flush=True)
@@ -89,7 +115,7 @@ class NewsFeed:
             except Exception as e:
                 self.error = str(e)[:200]
                 print("NEWS_ERROR", self.error, flush=True)
-                await asyncio.sleep(600)
+                await asyncio.sleep(1200 if "429" in self.error else 600)
 
     def view(self) -> dict:
         now = time.time()
