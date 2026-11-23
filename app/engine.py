@@ -25,6 +25,19 @@ def audit(event: str, **data) -> None:
         f.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
 
 
+def bt_mode(bt: dict) -> str:
+    """Let the walk-forward decide how this pair/TF trades: with the model filter, on raw signals, or minimal size."""
+    if not bt.get("ok"):
+        return "model"
+    f = (bt.get("out_of_sample") or {}).get("expectancy_r")
+    r = (bt.get("unfiltered") or {}).get("expectancy_r")
+    if f is not None and f > 0 and (r is None or f >= r):
+        return "model"
+    if r is not None and r > 0:
+        return "raw"
+    return "min"
+
+
 class Engine:
     def __init__(self, broker: Broker) -> None:
         self.broker = broker
@@ -136,8 +149,9 @@ class Engine:
             tf = tf or settings.hybrid_tf
             key = key or symbol
             df = self.broker.candles(symbol, tf, 1000)
+            bt = self.backtests.get(key) or {}
             card = hybrid_eval(symbol, df, self.broker.spec(symbol), t["ask"] - t["bid"], self.news_block(symbol),
-                               self.broker.account().equity, self.models.get(key))
+                               self.broker.account().equity, self.models.get(key), mode=bt_mode(bt))
             card["tf"], card["key"] = tf, key
             if tf != settings.hybrid_tf:
                 card["headline"] = f"[{tf} طويل] " + card["headline"]
@@ -323,9 +337,11 @@ class Engine:
             try:
                 cur = self.models.get(key)
                 if cur is None:
-                    raw = storage.kv_get(f"meta2:{key}")
+                    raw = storage.kv_get(f"meta3:{key}")
                     if raw:
-                        cur = self.models[key] = M.MetaModel.from_json(raw)
+                        cur = M.MetaModel.from_json(raw)
+                        from .agent.features import FEATURES
+                        cur = self.models[key] = cur if len(cur.mu) == len(FEATURES) else None
                 if cur is not None and time.time() - cur.trained < settings.meta_retrain_hours * 3600:
                     out[key] = {"n": cur.n, "base": round(cur.base, 3), "auc": cur.auc, "cached": True}
                     continue
@@ -335,7 +351,7 @@ class Engine:
                     out[key] = {"error": "أحداث قليلة"}
                     continue
                 self.models[key] = m
-                storage.kv_set(f"meta2:{key}", m.to_json())
+                storage.kv_set(f"meta3:{key}", m.to_json())
                 out[key] = {"n": m.n, "base": round(m.base, 3), "auc": round(m.auc, 3) if m.auc else None}
                 self.log("info", f"الوكيل: تدرّب نموذج {key} على {m.n} حدث (نسبة النجاح الأساسية {m.base:.0%}، AUC {m.auc and round(m.auc, 2)})")
             except Exception as e:
