@@ -110,7 +110,8 @@ class Engine:
         t = self.broker.tick(symbol)
         if settings.strategy_mode.upper() == "SCALP":
             from .scalp import evaluate as scalp_eval
-            card = scalp_eval(symbol, frames, self.broker.spec(symbol), t["ask"] - t["bid"], self.news_block(symbol))
+            card = scalp_eval(symbol, frames, self.broker.spec(symbol), t["ask"] - t["bid"], self.news_block(symbol),
+                              equity=self.broker.account().equity)
         else:
             card = evaluate(symbol, frames, self.broker.spec(symbol), self.broker.account(),
                             spread=t["ask"] - t["bid"], news_blocked=self.news_block(symbol))

@@ -73,12 +73,14 @@ class Settings(BaseSettings):
     max_spread_to_sl_ratio: float = 0.20
     news_block_minutes: int = 15
     strategy_mode: str = "SCALP"  # SCALP = many small fixed-$ trades; SMC = swing/structure strategy
-    scalp_tp_usd: float = 1.5  # take profit per trade in account $
-    scalp_sl_usd: float = 1.5  # stop per trade in account $ (always set)
-    scalp_max_minutes: int = 30  # close a scalp that hasn't resolved
+    scalp_risk_pct: float = 2.5  # stop per trade = this % of equity (grows with the account)
+    scalp_tp_mult: float = 1.0  # take profit = stop $ x this
+    scalp_tp_usd: float = 1.5  # legacy/min floor
+    scalp_sl_usd: float = 1.5  # legacy/min floor
+    scalp_max_minutes: int = 20  # close a scalp that hasn't resolved
     scalp_cooldown_min: int = 2  # same-symbol pause after an entry
     scalp_loss_cooldown_min: int = 10  # same-symbol pause after a loss
-    scalp_max_open: int = 3
+    scalp_max_open: int = 4
     profit_lock_start_usd: float = 3.0  # once the day is up this much...
     profit_lock_keep_pct: float = 50.0  # ...keep at least this % of the day's best gain; below it, bot entries pause till tomorrow
     tg_max_per_symbol: int = 4  # Telegram trades are separate: entries + reinforcements per symbol

@@ -20,7 +20,7 @@ def _trend(df) -> int:
     return 1 if a > b else -1 if a < b else 0
 
 
-def evaluate(symbol: str, frames: dict, spec, spread: float, news_blocked: str | None = None) -> dict:
+def evaluate(symbol: str, frames: dict, spec, spread: float, news_blocked: str | None = None, equity: float = 0.0) -> dict:
     card = {"id": uuid.uuid4().hex[:12], "symbol": symbol, "created": time.time(), "strategy": "SCALP",
             "grade": "NO_TRADE", "direction": None, "score": 0, "gates_failed": [], "auto_ok": False,
             "headline": "لا صفقة"}
@@ -65,23 +65,26 @@ def evaluate(symbol: str, frames: dict, spec, spread: float, news_blocked: str |
     if g or not direction:
         return card
 
+    sl_usd = max(settings.scalp_sl_usd, equity * settings.scalp_risk_pct / 100)
+    tp_usd = max(settings.scalp_tp_usd, sl_usd * settings.scalp_tp_mult)
     price = float(c["close"])
     sl_dist = max(1.5 * a1, 6 * spread, spec.stops_level * spec.point * 1.2)
     per_unit = spec.tick_value / spec.tick_size  # $ per 1.0 price move per 1 lot
-    lots = settings.scalp_sl_usd / (sl_dist * per_unit)
+    lots = sl_usd / (sl_dist * per_unit)
     lots = math.floor(lots / spec.volume_step + 1e-9) * spec.volume_step
     lots = max(lots, spec.volume_min)
     lots = min(lots, spec.volume_max)
     lots = round(lots, 8)
     sl_money = lots * sl_dist * per_unit
-    if sl_money > settings.scalp_sl_usd * 2:
+    cap = min(sl_usd * 2, equity * settings.max_risk_per_trade_pct / 100) if equity else sl_usd * 2
+    if sl_money > cap:
         g.append(f"أقل لوت يخاطر {sl_money:.2f}$ — أكبر من المسموح")
         return card
-    tp_dist = settings.scalp_tp_usd / (lots * per_unit) + spread
+    tp_dist = tp_usd / (lots * per_unit) + spread
     sgn = 1 if direction == "BUY" else -1
     d = spec.digits
     sl, tp = round(price - sgn * sl_dist, d), round(price + sgn * tp_dist, d)
     card.update({"grade": "SCALP", "auto_ok": True, "entry": round(price, d), "sl": sl, "tp1": tp, "tp2": tp, "tp3": tp,
                  "lots": lots, "atr_setup": a1, "risk": {"risk_money": round(sl_money, 2)},
-                 "headline": f"سكالب {'شراء' if sgn > 0 else 'بيع'} {symbol} — هدف {settings.scalp_tp_usd}$ / وقف {sl_money:.2f}$"})
+                 "headline": f"سكالب {'شراء' if sgn > 0 else 'بيع'} {symbol} — هدف {tp_usd:.2f}$ / وقف {sl_money:.2f}$"})
     return card
