@@ -34,7 +34,7 @@ def test_track_mode_records_with_auto_sl_and_no_trade(monkeypatch):
     monkeypatch.setattr(settings, "tg_mode", "track")
     asyncio.run(br.handle("قناة", 1, "بيع ذهب الان"))
     s = storage.list_signals()[0]
-    assert s["side"] == "SELL" and s["sl"] > s["entry"] and s["sl_source"] == "auto" and not s["executed"]
+    assert s["side"] == "SELL" and s["sl"] > s["entry"] and s["sl_source"] .startswith("auto") and not s["executed"]
     assert not b.positions()
     asyncio.run(br.handle("قناة", 1, "بيع ذهب الان"))  # duplicate message id ignored
     assert len(storage.list_signals()) == 1

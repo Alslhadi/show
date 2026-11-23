@@ -79,6 +79,7 @@ async def lifespan(app: FastAPI):
         print("TELEGRAM", tg.status, flush=True)
     tg_task = asyncio.create_task(tg_boot())
     tracker = asyncio.create_task(tg.tracker_loop())
+    groups_task = asyncio.create_task(tg.groups_loop())
     task = asyncio.create_task(engine.run(interval=5.0 if settings.data_source.upper() == "EXNESS" else 2.0))
     pinger = asyncio.create_task(keep_awake())
     news_task = asyncio.create_task(news.loop(engine))

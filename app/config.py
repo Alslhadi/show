@@ -105,6 +105,9 @@ class Settings(BaseSettings):
     profit_lock_pause_min: int = 45  # pause after a give-back, then resume
     tg_max_per_symbol: int = 6  # Telegram trades are separate: one per entry zone + reinforcements
     tg_channels_extra: str = ""  # always followed in addition to TG_CHANNELS
+    tg_legs: int = 2  # per analyst entry: quick leg (1st target / 1R) + runner (final target), runner -> BE when quick hits
+    tg_pyramid: bool = True  # add one more leg once the runner is +1R in profit (stop at the runner's entry)
+    tg_total_risk_pct: float = 35.0  # cap on combined open Telegram risk; extra legs are skipped beyond it
     tg_lots: float = 0.01  # fixed lot per Telegram entry (per zone)
     tg_minlot_max_risk_pct: float = 15.0  # refuse a Telegram entry only if 0.01 lot would risk more than this
     tg_context_min: int = 20  # levels posted within N min attach to the analyst's last side-only order  # Telegram trades are separate: entries + reinforcements per symbol

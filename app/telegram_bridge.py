@@ -40,6 +40,7 @@ class TelegramBridge:
         self.channels: dict[int, str] = {}
         self._login: dict = {}
         self.recent: list[dict] = []
+        self.groups: dict[str, dict] = {}
 
     # ---- session ---------------------------------------------------------------
     def configured(self) -> bool:
@@ -255,27 +256,103 @@ class TelegramBridge:
             if p.get("attach") and inside:
                 continue  # the side-only order already filled at market here
             entries.append((k, lo, hi, inside and not p.get("pending")))
+        targets = [x for x in (p.get("targets") or []) if x]
         for k, lo, hi, now_ in entries:
             ref = price if now_ else (lo + hi) / 2
             sl, sl_src = p.get("sl"), "analyst"
             if not sl or (side == "BUY" and sl >= ref) or (side == "SELL" and sl <= ref):
                 sl, sl_src = await asyncio.to_thread(self._auto_sl, sym, side, ref), "auto"
             risk = abs(ref - sl)
-            tp = p.get("tp")
-            if not tp or (side == "BUY" and tp <= ref) or (side == "SELL" and tp >= ref):
-                tp = ref + 2 * risk if side == "BUY" else ref - 2 * risk
-            row = {**rec, "msg_id": msg_id * 10 + k, "symbol": sym, "side": side, "entry": price if now_ else None,
-                   "entry_lo": lo, "entry_hi": hi, "sl": sl, "sl_source": sl_src, "tp": tp,
-                   "status": "open" if now_ else "pending"}
-            stored = await asyncio.to_thread(storage.insert_signal, row)
-            if not stored:
-                continue
+            sgn = 1 if side == "BUY" else -1
+            good = [t for t in targets if (t - ref) * sgn > 0]
+            final = p.get("tp") if p.get("tp") and (p["tp"] - ref) * sgn > 0 else (good[-1] if good else ref + sgn * 2.5 * risk)
+            quick = good[0] if len(good) > 1 else ref + sgn * 1.0 * risk
+            if (quick - ref) * sgn >= (final - ref) * sgn:
+                quick = ref + sgn * 0.6 * abs(final - ref)
+            gid = f"{channel}:{msg_id}:{k}"
+            grp = self.groups.setdefault(gid, {"side": side, "sym": sym, "risk": risk, "tp": final, "q": [], "r": [],
+                                                "be": False, "pyr": False, "channel": channel})
+            legs = [("Q", quick), ("R", final)][: max(1, settings.tg_legs)] if settings.tg_legs > 1 else [("R", final)]
             zone_txt = f"{lo:g}" if lo == hi else f"{lo:g}–{hi:g}"
+            for j, (leg, tp) in enumerate(legs):
+                row = {**rec, "msg_id": msg_id * 100 + k * 10 + j, "symbol": sym, "side": side, "entry": price if now_ else None,
+                       "entry_lo": lo, "entry_hi": hi, "sl": sl, "sl_source": f"{sl_src}|{leg}|{gid}", "tp": tp,
+                       "status": "open" if now_ else "pending"}
+                stored = await asyncio.to_thread(storage.insert_signal, row)
+                if not stored:
+                    continue
+                grp["q" if leg == "Q" else "r"].append(stored["id"])
+                if now_:
+                    await asyncio.to_thread(self._maybe_execute, stored, False)
             self.engine.log("info", f"تلجرام [{channel}]: {side} {sym} منطقة {zone_txt} — "
-                                    f"{'دخول الحين' if now_ else 'معلق لين يوصلها'} · وقف {round(sl, 3)} ({'المحلل' if sl_src == 'analyst' else 'تلقائي'})")
-            if now_:
-                await asyncio.to_thread(self._maybe_execute, stored, False)
+                                    f"{'دخول الحين' if now_ else 'معلق لين يوصلها'} · {len(legs)} صفقات (سريعة {round(quick, 2)} + ممتدة {round(final, 2)}) "
+                                    f"· وقف {round(sl, 3)} ({'المحلل' if sl_src == 'analyst' else 'تلقائي'})")
         return p
+
+    # ---- multi-leg management (fast loop) -------------------------------------------
+    def _tg_risk_open(self) -> float:
+        tot = 0.0
+        for pos in self.engine.broker.positions():
+            if not self.engine._is_tg(pos) or not pos.get("sl"):
+                continue
+            sgn = 1 if pos["direction"] == "BUY" else -1
+            dist = (pos["price_open"] - pos["sl"]) * sgn
+            if dist > 0:
+                spec = self.engine.broker.spec(pos["symbol"])
+                tot += dist / spec.tick_size * spec.tick_value * pos["volume"]
+        return tot
+
+    def manage_groups(self) -> None:
+        if not self.groups:
+            return
+        pos = {str(p_["ticket"]): p_ for p_ in self.engine.broker.positions()}
+        rows = {s_["id"]: s_ for s_ in storage.list_signals(limit=300)}
+        for gid, g in list(self.groups.items()):
+            q = [rows.get(i) for i in g["q"] if rows.get(i)]
+            r = [rows.get(i) for i in g["r"] if rows.get(i)]
+            live_r = [pos[str(x["ticket"])] for x in r if x.get("executed") and str(x.get("ticket")) in pos]
+            if not live_r and all(x.get("status") in ("closed", "expired") for x in q + r):
+                self.groups.pop(gid, None)
+                continue
+            sgn = 1 if g["side"] == "BUY" else -1
+            # quick leg done in profit -> runner to break-even
+            q_done = [x for x in q if x.get("executed") and str(x.get("ticket")) not in pos]
+            if not g["be"] and q_done and live_r:
+                px = live_r[0]["price_current"]
+                if (px - live_r[0]["price_open"]) * sgn > 0:
+                    for lp in live_r:
+                        self.engine.broker.modify(lp["ticket"], lp["price_open"], None)
+                        plan = self.engine.plans.get(lp["ticket"])
+                        if plan:
+                            plan["sl"] = lp["price_open"]
+                    g["be"] = True
+                    self.engine.log("info", f"تلجرام: الصفقة السريعة ضربت الهدف — الممتدة صارت على الدخول ({g['sym']})")
+            # pyramid once the runner is +1R: one more leg, stop at the runner's entry
+            if settings.tg_pyramid and not g["pyr"] and live_r:
+                lp = live_r[0]
+                px = lp["price_current"]
+                if (px - lp["price_open"]) * sgn >= g["risk"]:
+                    g["pyr"] = True
+                    spec, acc = self.engine.broker.spec(g["sym"]), self.engine.broker.account()
+                    lots = max(spec.volume_min, round(settings.tg_lots / spec.volume_step) * spec.volume_step)
+                    new_risk = abs(px - lp["price_open"]) / spec.tick_size * spec.tick_value * lots
+                    if acc.equity and (self._tg_risk_open() + new_risk) / acc.equity * 100 <= settings.tg_total_risk_pct:
+                        card = {"id": f"tgpy{int(time.time())}", "symbol": g["sym"], "direction": g["side"], "grade": "TELEGRAM",
+                                "lots": round(lots, 8), "sl": lp["price_open"], "tp1": px + sgn * g["risk"],
+                                "tp2": px + sgn * 2 * g["risk"], "tp3": g["tp"], "atr_setup": g["risk"] / 1.5,
+                                "risk": {"risk_money": round(new_risk, 2)}}
+                        res = self.engine.execute(card, f"TG {g['channel'][:12]}")
+                        self.engine.log("info", f"تلجرام: تعزيز بالربح {g['side']} {g['sym']} — {'تم' if res.get('ok') else res.get('message')}")
+
+    async def groups_loop(self) -> None:
+        if not hasattr(self, "groups"):
+            self.groups = {}
+        while True:
+            try:
+                await asyncio.to_thread(self.manage_groups)
+            except Exception as e:
+                self.engine.log("error", f"تلجرام: إدارة الصفقات: {e}")
+            await asyncio.sleep(10)
 
     def _retarget(self, channel: str, ctx: dict, sl, tp) -> None:
         """Levels arrived after a side-only market order: move that trade's SL/TP to the analyst's."""
@@ -323,6 +400,10 @@ class TelegramBridge:
         entry = t["ask"] if sig["side"] == "BUY" else t["bid"]
         lots = max(spec.volume_min, round(settings.tg_lots / spec.volume_step) * spec.volume_step)
         loss = abs(entry - sig["sl"]) / spec.tick_size * spec.tick_value * lots
+        if acc.equity and (self._tg_risk_open() + loss) / acc.equity * 100 > settings.tg_total_risk_pct:
+            storage.update_signal(sig["id"], note="سقف مخاطرة تلجرام الإجمالي")
+            self.engine.log("warn", f"تلجرام: تخطي صفقة إضافية {sig['symbol']} — وصلنا سقف المخاطرة الإجمالي {settings.tg_total_risk_pct}%")
+            return
         if acc.equity and loss / acc.equity * 100 > settings.tg_minlot_max_risk_pct:
             storage.update_signal(sig["id"], note=f"الوقف بعيد: {lots} لوت يخاطر {loss / acc.equity * 100:.0f}%")
             self.engine.log("warn", f"تلجرام: رفض {sig['symbol']} — {lots} لوت يخاطر {loss:.2f}$")

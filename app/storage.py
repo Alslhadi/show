@@ -113,8 +113,8 @@ def channel_stats() -> dict[str, dict]:
     rows = list_signals(limit=5000)
     out: dict[str, dict] = {}
     for r in rows:
-        if r["kind"] != "OPEN":
-            continue
+        if r["kind"] != "OPEN" or "|Q|" in (r.get("sl_source") or ""):
+            continue  # count each analyst entry once (the runner leg carries the call to its final target)
         s = out.setdefault(r["channel"], {"signals": 0, "closed": 0, "wins": 0, "losses": 0, "be": 0, "sum_r": 0.0})
         s["signals"] += 1
         if r["status"] == "closed" and r["r_multiple"] is not None:
