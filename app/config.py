@@ -84,6 +84,7 @@ class Settings(BaseSettings):
     hybrid_risk_max_pct: float = 1.5  # ATR-normalised risk cap per trade
     hybrid_minlot_max_risk_pct: float = 10.0  # allow broker min lot only if it risks <= this
     hybrid_max_open: int = 4
+    agent_plan: str = "XAUUSD:M15;BTCUSD:M15,H1"  # what the bot itself trades: gold short-term, BTC short + swing
     evidence_gate: bool = False  # True = block symbols with negative walk-forward expectancy
     kelly_fraction: float = 0.25  # quarter Kelly
     meta_p_min: float = 0.42  # meta-model probability threshold
@@ -103,7 +104,7 @@ class Settings(BaseSettings):
     profit_lock_keep_pct: float = 50.0  # ...keep at least this % of the day's best gain; below it, bot entries pause till tomorrow
     profit_lock_pause_min: int = 45  # pause after a give-back, then resume
     tg_max_per_symbol: int = 6  # Telegram trades are separate: one per entry zone + reinforcements
-    tg_channels_extra: str = "عيسى عدواني,عدواني,Issa Adwani"  # always followed in addition to TG_CHANNELS
+    tg_channels_extra: str = ""  # always followed in addition to TG_CHANNELS
     tg_lots: float = 0.01  # fixed lot per Telegram entry (per zone)
     tg_minlot_max_risk_pct: float = 15.0  # refuse a Telegram entry only if 0.01 lot would risk more than this
     tg_context_min: int = 20  # levels posted within N min attach to the analyst's last side-only order  # Telegram trades are separate: entries + reinforcements per symbol
@@ -126,6 +127,19 @@ class Settings(BaseSettings):
     dashboard_token: str = "change-me"
     webhook_secret: str = "change-me-too"
     webhook_max_age_s: int = 30
+
+    @property
+    def agent_keys(self) -> list[tuple[str, str, str]]:
+        """(key, symbol, timeframe) for every bot model. key = symbol for the default TF, else 'SYM@TF'."""
+        out = []
+        for part in self.agent_plan.split(";"):
+            if ":" not in part:
+                continue
+            sym, tfs = part.split(":", 1)
+            for tf in [x.strip().upper() for x in tfs.split(",") if x.strip()]:
+                sym_u = sym.strip().upper()
+                out.append((sym_u if tf == self.hybrid_tf else f"{sym_u}@{tf}", sym_u, tf))
+        return out
 
     @property
     def symbol_list(self) -> list[str]:

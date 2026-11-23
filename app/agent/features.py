@@ -10,7 +10,7 @@ from ..indicators import adx, atr, ema, rsi
 
 REGIMES = ("TREND_UP", "TREND_DOWN", "RANGE", "CRISIS")
 FEATURES = ["adx", "atr_pct", "rsi", "dist_ema50", "htf_agree", "htf2_agree", "z", "body", "hour_sin", "hour_cos",
-            "sig_trend", "mom10"]
+            "sig_trend", "mom10", "sweep", "zone_dist", "sig_sweep", "eq_pool"]
 
 
 def build(df: pd.DataFrame) -> pd.DataFrame:
@@ -38,6 +38,17 @@ def build(df: pd.DataFrame) -> pd.DataFrame:
                             np.where((d["adx"] >= 20) & (d["htf"] < 0), "TREND_DOWN", "RANGE")))
     d["regime"] = reg
 
+    # liquidity: sweep of the prior 20-bar low/high that closes back inside (stop-hunt), resting equal highs/lows,
+    # and distance to the 50-bar swing extreme (the "strong zone" the stop sits behind)
+    lo20, hi20 = d["low"].rolling(20).min().shift(1), d["high"].rolling(20).max().shift(1)
+    d["sweep_up"] = (d["low"] < lo20) & (c > lo20)      # sell-side liquidity taken -> bullish
+    d["sweep_dn"] = (d["high"] > hi20) & (c < hi20)     # buy-side liquidity taken -> bearish
+    lo50, hi50 = d["low"].rolling(50).min(), d["high"].rolling(50).max()
+    d["dist_lo50"], d["dist_hi50"] = (c - lo50) / d["atr"], (hi50 - c) / d["atr"]
+    tol = 0.15 * d["atr"]
+    d["eq_lows"] = ((d["low"].rolling(30).min() - d["low"].rolling(30).quantile(0.1)).abs() <= tol)
+    d["eq_highs"] = ((d["high"].rolling(30).max() - d["high"].rolling(30).quantile(0.9)).abs() <= tol)
+
     # stage-1 primary signals (+1 buy / -1 sell / 0), regime-conditioned
     up_pull = (d["low"] <= d["ema20"] + 0.2 * d["atr"]) & (c > d["ema20"]) & (c > d["open"])
     dn_pull = (d["high"] >= d["ema20"] - 0.2 * d["atr"]) & (c < d["ema20"]) & (c < d["open"])
@@ -47,8 +58,13 @@ def build(df: pd.DataFrame) -> pd.DataFrame:
     zp = d["z"].shift(1)
     r_up = (d["regime"] == "RANGE") & (zp < -2) & (d["z"] > zp) & (d["rsi"] < 40)
     r_dn = (d["regime"] == "RANGE") & (zp > 2) & (d["z"] < zp) & (d["rsi"] > 60)
-    d["signal"] = np.where(t_up | r_up, 1, np.where(t_dn | r_dn, -1, 0))
+    # liquidity-sweep reversal at a strong zone (not against a trending HTF), the "entry at liquidity" setup
+    s_up = d["sweep_up"] & (d["regime"] != "TREND_DOWN") & (d["regime"] != "CRISIS") & (d["dist_lo50"] < 1.5)
+    s_dn = d["sweep_dn"] & (d["regime"] != "TREND_UP") & (d["regime"] != "CRISIS") & (d["dist_hi50"] < 1.5)
+    buy, sell = t_up | r_up | s_up, t_dn | r_dn | s_dn
+    d["signal"] = np.where(buy & ~sell, 1, np.where(sell & ~buy, -1, 0))
     d["sig_trend"] = np.where(t_up | t_dn, 1.0, 0.0)
+    d["sig_sweep"] = np.where(s_up | s_dn, 1.0, 0.0)
     return d
 
 
@@ -59,6 +75,9 @@ def feature_row(d: pd.DataFrame, i: int) -> np.ndarray:
         r["adx"] / 50, r["atr_pct"], (r["rsi"] - 50) / 25 * s, r["dist50"] * s,
         r["htf"] * s, r["htf2"] * s, -r["z"] * s if r["sig_trend"] == 0 else r["z"] * s / 2,
         r["body_r"] * s, r["hour_sin"], r["hour_cos"], r["sig_trend"], r["mom"] * s / 3,
+        float(r["sweep_up"] if s > 0 else r["sweep_dn"]),
+        min(5.0, float(r["dist_lo50"] if s > 0 else r["dist_hi50"])) / 5,
+        r["sig_sweep"], float(r["eq_highs"] if s > 0 else r["eq_lows"]),  # resting liquidity at the target side
     ], dtype=float)
 
 

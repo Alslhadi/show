@@ -92,15 +92,15 @@ async def lifespan(app: FastAPI):
                     print("MODELS", json.dumps(r, ensure_ascii=False, default=str), flush=True)
                     if not _BT or time.time() - min(v.get("t", 0) for v in _BT.values()) > 12 * 3600:
                         from .agent.backtest import walk_forward
-                        for sym in settings.symbol_list:
-                            def run(sym=sym):
-                                df = engine.history_candles(sym, settings.hybrid_tf, settings.meta_train_bars)
+                        for key, sym, tf in settings.agent_keys:
+                            def run(sym=sym, tf=tf):
+                                df = engine.history_candles(sym, tf, settings.meta_train_bars)
                                 t = engine.broker.tick(sym)
                                 return walk_forward(df, spread=t["ask"] - t["bid"])
                             bt = await asyncio.to_thread(run)
                             bt["t"] = time.time()
-                            _BT[sym] = bt
-                            print("WALKFORWARD", sym, json.dumps({k: bt.get(k) for k in ("out_of_sample", "in_sample", "wfe", "unfiltered")},
+                            _BT[key] = bt
+                            print("WALKFORWARD", key, json.dumps({k: bt.get(k) for k in ("out_of_sample", "in_sample", "wfe", "unfiltered")},
                                                                     ensure_ascii=False, default=str), flush=True)
                 except Exception as e:
                     print("MODELS_ERROR", e, flush=True)
