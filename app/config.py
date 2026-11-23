@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     # Aggressive but never martingale: risk is a fixed % of current equity,
     # it is never raised to recover losses.
     risk_per_trade_pct: float = 3.0
-    max_risk_per_trade_pct: float = 10.0  # absolute ceiling
+    max_risk_per_trade_pct: float = 5.0  # absolute ceiling for the bot (Telegram has tg_minlot_max_risk_pct)
     daily_max_loss_pct: float = 25.0
     weekly_max_loss_pct: float = 30.0
     max_drawdown_pct: float = 40.0
@@ -72,7 +72,7 @@ class Settings(BaseSettings):
     max_consecutive_losses: int = 8
     max_spread_to_sl_ratio: float = 0.20
     news_block_minutes: int = 15
-    strategy_mode: str = "HYBRID"  # HYBRID = research-playbook agent; SCALP = fixed-$ micro trades; SMC = legacy
+    strategy_mode: str = "SMC"  # SMC = the original structure strategy (user-chosen); HYBRID = research-playbook agent; SCALP = fixed-$ micro trades; SMC = legacy
     # --- hybrid agent (regime -> primary signal -> meta-label p -> fractional Kelly; staged exits) ---
     hybrid_tf: str = "M15"
     hybrid_sl_atr: float = 1.5  # structural stop distance in ATR
@@ -100,6 +100,7 @@ class Settings(BaseSettings):
     scalp_loss_cooldown_min: int = 10  # same-symbol pause after a loss
     scalp_max_open: int = 4
     votes_min_agree: int = 12  # of 20 indicators on the setup TF must agree with the direction
+    profit_lock_enabled: bool = False  # the original strategy ran without it
     profit_lock_start_usd: float = 5.0  # once the day is up this much...
     profit_lock_keep_pct: float = 50.0  # ...keep at least this % of the day's best gain; below it, bot entries pause till tomorrow
     profit_lock_pause_min: int = 45  # pause after a give-back, then resume

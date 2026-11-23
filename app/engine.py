@@ -413,7 +413,7 @@ class Engine:
         if card["grade"] == "NO_TRADE":
             return
         scalp = card.get("strategy") in ("SCALP", "HYBRID")
-        if self.profit_lock():
+        if settings.profit_lock_enabled and self.profit_lock():
             return
         if card.get("strategy") == "HYBRID":
             bt = self.backtests.get(key) or {}
