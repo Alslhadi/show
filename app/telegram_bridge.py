@@ -249,6 +249,9 @@ class TelegramBridge:
         self.recent = ([{"t": time.time(), "channel": channel, "text": text[:200], "parsed": p}] + self.recent)[:50]
         if p["kind"] == "INFO":
             return p
+        if p["kind"] in ("OPEN", "LEVELS", "ADD") and await asyncio.to_thread(self._is_repost, channel, msg_id, text):
+            self.engine.log("info", f"تلجرام [{channel}]: رسالة مكررة/إعادة نشر لصفقة قديمة — تجاهل")
+            return {"kind": "INFO", "repost": True}
         if not hasattr(self, "intent"):
             self.intent, self.seen = {}, []
         if p["kind"] == "LIGHT":
@@ -414,6 +417,31 @@ class TelegramBridge:
             except Exception as e:
                 self.engine.log("error", f"تلجرام: إدارة الصفقات: {e}")
             await asyncio.sleep(10)
+
+    def _is_repost(self, channel: str, msg_id: int, text: str) -> bool:
+        """The analyst re-posts old calls as recaps ('Before the deal') and cross-posts between channels.
+        Identical entry text seen in the last 6h (any channel, other message) is not a new trade.
+        Persisted in kv so it survives restarts."""
+        from .signal_parser import normalize
+        key = re.sub(r"[^\w\d.]+", "", normalize(text))[:200]
+        if not key:
+            return False
+        try:
+            seen = json.loads(storage.kv_get("tg_textseen") or "{}")
+        except Exception:
+            seen = {}
+        now = time.time()
+        seen = {k: v for k, v in seen.items() if now - v["t"] < 6 * 3600}
+        me = f"{channel}:{msg_id}"
+        prev = seen.get(key)
+        dup = bool(prev and prev["m"] != me)
+        if not prev:
+            seen[key] = {"t": now, "m": me}
+        try:
+            storage.kv_set("tg_textseen", json.dumps(seen, ensure_ascii=False))
+        except Exception:
+            pass
+        return dup
 
     def _retarget(self, channel: str, ctx: dict, sl, tp) -> None:
         """Levels arrived after a side-only market order: move that trade's SL/TP to the analyst's."""

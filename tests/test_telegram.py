@@ -14,6 +14,7 @@ from app.telegram_bridge import TelegramBridge
 
 def _bridge():
     storage._mem_signals.clear()
+    storage._mem_kv.pop("tg_textseen", None)
     risk_engine.release()
     b = PaperBroker(["XAUUSD"], balance=1000.0)
     return TelegramBridge(Engine(b)), b
@@ -93,3 +94,12 @@ def test_issa_dialect():
     assert parse_issa("تحت ٢٢ سكره")["kind"] == "SL"
     assert parse_issa("راح انام ماراح ادخل على الذهب")["kind"] == "INFO"
     assert expand_short(25, 3618.4) == 3625 and expand_short(620, 3612) == 3620 and expand_short(3610, 3612) == 3610
+
+
+def test_repost_of_old_call_is_ignored(monkeypatch):
+    br, b = _bridge()
+    monkeypatch.setattr(settings, "tg_mode", "follow")
+    asyncio.run(br.handle("قناة", 50, "شراء خفيف وسريع"))
+    n = len(b.positions())
+    asyncio.run(br.handle("قناة2", 77, "شراء خفيف وسريع"))  # recap / cross-post later
+    assert len(b.positions()) == n
