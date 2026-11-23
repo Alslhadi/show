@@ -46,6 +46,9 @@ def _num_after(pattern: str, t: str) -> float | None:
 
 
 def _targets(t: str) -> list[float]:
+    m = re.search(r"(?:جني الربح|جني الارباح|اخذ الربح|take profit)[^\d\n]{0,6}((?:\d{3,6}(?:\.\d+)?\s*[/|,،-]?\s*)+)", t)
+    if m:
+        return [float(x) for x in re.findall(r"\d{3,6}(?:\.\d+)?", m.group(1))]
     return [float(x) for x in re.findall(r"(?:هدف|الهدف|اهداف|تارجت|tp|target)(?:\s*\d\s*[:_.)-])?[^\d\n]{0,12}" + NUM, t)]
 
 
@@ -64,6 +67,8 @@ def parse(text: str) -> dict:
     out: dict = {"kind": "INFO"}
     if not t.strip():
         return out
+    if re.search(r"الغاء الامر|الغاء الامر|الغاء الصفقه|الغاء|cancel", t) and len(t) < 80:
+        return {"kind": "CANCEL"}
     z = re.search(CLOSE_ZONE, t)
     if z:
         return {"kind": "CLOSE_ZONE", "zones": [x for x in z.groups() if x]}

@@ -268,6 +268,13 @@ class TelegramBridge:
                         await asyncio.to_thread(storage.update_signal, s["id"], sl=p["sl"], sl_source="analyst")
                 self.engine.log("info", f"تلجرام [{channel}]: الوقف صار {p['sl']}")
             return p
+        if p["kind"] == "CANCEL":
+            n = 0
+            for sg in await asyncio.to_thread(storage.list_signals, ("pending",), channel, 50):
+                await asyncio.to_thread(storage.update_signal, sg["id"], status="expired", outcome="cancelled by analyst")
+                n += 1
+            self.engine.log("info", f"تلجرام [{channel}]: المحلل ألغى الأمر — إلغاء {n} أمر معلق")
+            return p
         if p["kind"] == "CLOSE_ZONE":
             n = await asyncio.to_thread(self._close_zones, channel, p["zones"])
             await asyncio.to_thread(storage.insert_signal, {**rec, "status": "done"})
