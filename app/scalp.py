@@ -44,12 +44,13 @@ def evaluate(symbol: str, frames: dict, spec, spread: float, news_blocked: str |
     direction = "BUY" if up else "SELL" if dn else None
     if direction:
         ema20, rsi = float(c["ema20"]), float(c["rsi"])
-        if up:
-            pull = float(c["low"]) <= ema20 + 0.2 * a1 and c["close"] > ema20 and c["close"] > c["open"]
-            rsi_ok = 45 <= rsi <= 70
+        last3 = e1.iloc[-3:]
+        if up:  # a dip to EMA20 within the last 3 candles, now closing back up
+            pull = bool((last3["low"] <= last3["ema20"] + 0.3 * a1).any()) and c["close"] > ema20 and c["close"] > c["open"]
+            rsi_ok = 40 <= rsi <= 75
         else:
-            pull = float(c["high"]) >= ema20 - 0.2 * a1 and c["close"] < ema20 and c["close"] < c["open"]
-            rsi_ok = 30 <= rsi <= 55
+            pull = bool((last3["high"] >= last3["ema20"] - 0.3 * a1).any()) and c["close"] < ema20 and c["close"] < c["open"]
+            rsi_ok = 25 <= rsi <= 60
         if pull:
             score += 10
         else:
