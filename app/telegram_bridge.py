@@ -331,6 +331,7 @@ class TelegramBridge:
             grp = self.groups.setdefault(gid, {"side": side, "sym": sym, "risk": risk, "tp": final, "q": [], "r": [],
                                                 "be": False, "pyr": False, "channel": channel})
             legs = [("Q", quick), ("R", final)][: max(1, settings.tg_legs)] if settings.tg_legs > 1 else [("R", final)]
+            to_run = []
             zone_txt = f"{lo:g}" if lo == hi else f"{lo:g}–{hi:g}"
             for j, (leg, tp) in enumerate(legs):
                 row = {**rec, "msg_id": msg_id * 100 + k * 10 + j, "symbol": sym, "side": side, "entry": price if now_ else None,
@@ -341,7 +342,9 @@ class TelegramBridge:
                     continue
                 grp["q" if leg == "Q" else "r"].append(stored["id"])
                 if now_:
-                    await asyncio.to_thread(self._maybe_execute, stored, False)
+                    to_run.append(stored)
+            if to_run:  # fire all legs at once: each Exness order waits for its own confirmation
+                await asyncio.gather(*[asyncio.to_thread(self._maybe_execute, r_, False) for r_ in to_run])
             self.engine.log("info", f"تلجرام [{channel}]: {side} {sym} منطقة {zone_txt} — "
                                     f"{'دخول الحين' if now_ else 'معلق لين يوصلها'} · {len(legs)} صفقات (سريعة {round(quick, 2)} + ممتدة {round(final, 2)}) "
                                     f"· وقف {round(sl, 3)} ({'المحلل' if sl_src == 'analyst' else 'تلقائي'})")
