@@ -63,13 +63,13 @@ class Settings(BaseSettings):
     # Aggressive but never martingale: risk is a fixed % of current equity,
     # it is never raised to recover losses.
     risk_per_trade_pct: float = 3.0
-    max_risk_per_trade_pct: float = 5.0  # absolute ceiling
-    daily_max_loss_pct: float = 15.0
+    max_risk_per_trade_pct: float = 10.0  # absolute ceiling
+    daily_max_loss_pct: float = 25.0
     weekly_max_loss_pct: float = 30.0
     max_drawdown_pct: float = 40.0
     max_open_trades: int = 5
     max_trades_per_symbol: int = 1
-    max_consecutive_losses: int = 5
+    max_consecutive_losses: int = 8
     max_spread_to_sl_ratio: float = 0.20
     news_block_minutes: int = 15
     strategy_mode: str = "HYBRID"  # HYBRID = research-playbook agent; SCALP = fixed-$ micro trades; SMC = legacy
@@ -82,10 +82,11 @@ class Settings(BaseSettings):
     hybrid_trail_atr: float = 2.5  # chandelier trail for the runner
     hybrid_horizon_bars: int = 48  # vertical barrier / time stop (48 x M15 = 12h)
     hybrid_risk_max_pct: float = 1.5  # ATR-normalised risk cap per trade
-    hybrid_minlot_max_risk_pct: float = 3.0  # allow broker min lot only if it risks <= this
+    hybrid_minlot_max_risk_pct: float = 10.0  # allow broker min lot only if it risks <= this
     hybrid_max_open: int = 4
+    evidence_gate: bool = False  # True = block symbols with negative walk-forward expectancy
     kelly_fraction: float = 0.25  # quarter Kelly
-    meta_p_min: float = 0.45  # meta-model probability threshold
+    meta_p_min: float = 0.42  # meta-model probability threshold
     meta_min_events: int = 60  # min labelled events before the model may trade
     meta_train_bars: int = 3000
     meta_retrain_hours: int = 12

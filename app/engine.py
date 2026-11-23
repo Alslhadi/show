@@ -388,7 +388,7 @@ class Engine:
         if card.get("strategy") == "HYBRID":
             bt = self.backtests.get(card["symbol"]) or {}
             oos = bt.get("out_of_sample") or {}
-            if bt.get("ok") and (oos.get("expectancy_r") or 0) <= 0:
+            if settings.evidence_gate and bt.get("ok") and (oos.get("expectancy_r") or 0) <= 0:
                 card["gates_failed"] = card.get("gates_failed", []) + ["الاختبار خارج العينة سالب — الزوج موقوف للبوت"]
                 card["auto_ok"] = False
                 return

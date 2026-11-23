@@ -11,6 +11,7 @@ Every executed trade always has a stop loss: the analyst's, else one placed from
 from __future__ import annotations
 
 import asyncio
+import json
 import base64
 import hashlib
 import time
@@ -73,6 +74,22 @@ class TelegramBridge:
             return
         await self._attach()
 
+    async def _dump_history(self, per_channel: int = 80) -> None:
+        """Log recent channel posts (read-only) so the analyst's style can be reviewed; parses each one."""
+        await asyncio.sleep(5)
+        for cid, name in self.channels.items():
+            try:
+                msgs = [m async for m in self.client.iter_messages(cid, limit=per_channel)]
+                for m in reversed(msgs):
+                    txt = (m.message or "").replace("\n", " ⏎ ")[:350]
+                    if not txt.strip():
+                        continue
+                    kind = parse(m.message or "").get("kind")
+                    print("TGHIST", json.dumps({"ch": name[:20], "t": m.date.strftime("%m-%d %H:%M"), "kind": kind, "txt": txt},
+                                               ensure_ascii=False), flush=True)
+            except Exception as e:
+                print("TGHIST_ERROR", name, e, flush=True)
+
     async def _attach(self) -> None:
         from telethon import events
         self.me = await self.client.get_me()
@@ -84,6 +101,8 @@ class TelegramBridge:
         if not self.channels:
             self.status = "مربوط — لم أجد القنوات المطلوبة في حسابك"
             return
+
+        asyncio.create_task(self._dump_history())
 
         @self.client.on(events.NewMessage(chats=list(self.channels)))
         async def _on_msg(ev):
@@ -207,9 +226,13 @@ class TelegramBridge:
         spec, acc = self.engine.broker.spec(sig["symbol"]), self.engine.broker.account()
         risk_pct = settings.tg_risk_pct * (0.5 if light else 1.0)
         size = position_size(acc.equity, risk_pct, sig["entry"], sig["sl"], spec)
-        if size["lots"] <= 0:
-            storage.update_signal(sig["id"], note=size["reason"])
-            return
+        if size["lots"] <= 0:  # small account: take the broker minimum if its risk stays under the cap
+            loss_min = size.get("loss_per_lot", 0) * spec.volume_min
+            if acc.equity and loss_min and loss_min / acc.equity * 100 <= settings.hybrid_minlot_max_risk_pct:
+                size = {**size, "lots": spec.volume_min}
+            else:
+                storage.update_signal(sig["id"], note=size["reason"])
+                return
         r = abs(sig["entry"] - sig["sl"])
         sgn = 1 if sig["side"] == "BUY" else -1
         card = {"id": f"tg{sig['id']}x{int(time.time())}", "symbol": sig["symbol"], "direction": sig["side"],

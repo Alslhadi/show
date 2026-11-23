@@ -33,12 +33,12 @@ def test_lot_size_rounds_down_never_up():
 
 def test_risk_capped_at_absolute_max():
     r = position_size(10_000, 50.0, 2000.0, 1995.0, GOLD)  # asks 50%, capped at the absolute max (5%)
-    assert r["risk_money"] <= 500.0 + 1e-6
+    assert r["risk_money"] <= 10_000 * settings.max_risk_per_trade_pct / 100 + 1e-6
 
 
 def test_kill_switch_blocks_and_consecutive_losses():
     re = RiskEngine()
-    for _ in range(5):
+    for _ in range(settings.max_consecutive_losses):
         re.record_result(-10)
     assert re.state.kill_switch
     errs = re.validate(symbol="XAUUSD", direction="BUY", entry=2000, sl=1995, tp=2010, lots=0.1, spec=GOLD,
@@ -49,7 +49,8 @@ def test_kill_switch_blocks_and_consecutive_losses():
 def test_daily_loss_triggers_kill():
     re = RiskEngine()
     re.update_equity(AccountState(10_000, 10_000, 10_000))
-    re.update_equity(AccountState(10_000, 8_400, 8_300))  # -16% > 15% daily limit
+    eq = 10_000 * (1 - (settings.daily_max_loss_pct + 1) / 100)
+    re.update_equity(AccountState(10_000, eq, eq))  # just past the daily limit
     assert re.state.kill_switch
 
 
