@@ -135,9 +135,12 @@ def evaluate(symbol: str, frames: dict[str, pd.DataFrame], spec: SymbolSpec, acc
             gates.append("لا توجد قمة/قاع مؤكد لوضع الوقف")
         else:
             base = sws[-1]["price"]
-            sl = base - 0.2 * a if up else base + 0.2 * a
+            sl = base - 0.2 * a - spread if up else base + 0.2 * a + spread
+            min_d = settings.sl_min_atr * a + spread
+            if abs(price - sl) < min_d and ((sl < price) if up else (sl > price)):
+                sl = price - min_d if up else price + min_d
             dist = abs(price - sl)
-            if not (settings.sl_min_atr * a <= dist <= settings.sl_max_atr * a) or (up and sl >= price) or (not up and sl <= price):
+            if not (settings.sl_min_atr * a <= dist <= settings.sl_max_atr * a + spread) or (up and sl >= price) or (not up and sl <= price):
                 gates.append(f"مسافة الوقف خارج النطاق ({settings.sl_min_atr}–{settings.sl_max_atr} ATR)")
             else:
                 sgn = 1 if up else -1

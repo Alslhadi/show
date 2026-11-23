@@ -34,6 +34,7 @@ class Engine:
         self.plans: dict[int, dict] = {}  # ticket -> management plan
         self.news_windows: list[dict] = []  # [{"name","start","end","symbols":[...]}] (UTC epoch)
         self.last_m5: dict[str, float] = {}
+        self.cooldown_until: dict[str, float] = {}  # symbol -> epoch
         self.status = {"started": time.time(), "loop_ok": False, "last_loop": None, "error": None}
         self.subscribers: set[asyncio.Queue] = set()
         self.logs: list[dict] = []
@@ -109,6 +110,7 @@ class Engine:
         res = self.broker.market_order(sym, d, card["lots"], card["sl"], card["tp3"], f"{source}", client_id)
         audit("order", source=source, card_id=client_id, symbol=sym, direction=d, lots=card["lots"], result=res)
         if res.get("ok"):
+            self.cooldown_until[sym] = max(self.cooldown_until.get(sym, 0), time.time() + settings.reentry_cooldown_min * 60)
             self.plans[res["ticket"]] = {"tp1": card["tp1"], "tp2": card["tp2"], "entry": entry, "sl": card["sl"],
                                          "atr": card.get("atr_setup", 0), "direction": d, "partial_done": False}
             self.log("info", f"تم تنفيذ {d} {sym} {card['lots']} لوت — {res.get('message', '')}", ticket=res["ticket"])
@@ -183,6 +185,9 @@ class Engine:
             return
         if prev and prev.get("grade") == card["grade"] and prev.get("direction") == card["direction"]:
             return  # same setup still standing; avoid duplicate orders
+        wait = self.cooldown_until.get(card["symbol"], 0) - time.time()
+        if wait > 0:
+            return  # cooling down: avoid churn / revenge re-entries
         if self.execution_mode == "SEMI_AUTO":
             self.pending[card["id"]] = card
             self.log("info", f"فرصة بانتظار موافقتك: {card['headline']}", card_id=card["id"])
@@ -240,6 +245,9 @@ class Engine:
         new_hist = self.broker.history(1000)
         for h in new_hist[: max(0, len(new_hist) - closed_before)]:
             risk_engine.record_result(h.get("profit", 0))
+            if h.get("profit", 0) < 0 and h.get("symbol"):
+                self.cooldown_until[h["symbol"]] = max(self.cooldown_until.get(h["symbol"], 0),
+                                                       time.time() + settings.loss_cooldown_min * 60)
         self.status.update(loop_ok=True, last_loop=today.timestamp(), error=None)
         if time.time() - getattr(self, "_hb", 0) > 300:  # heartbeat every 5 min
             self._hb = time.time()

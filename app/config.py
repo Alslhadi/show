@@ -47,12 +47,12 @@ class Settings(BaseSettings):
     tf_setup: str = "M5"
     tf_entry: str = "M1"
     auto_min_score: float = 65.0  # AUTO executes MODERATE (65+) and STRONG (80+)
-    tp1_r: float = 1.0  # TP1 at 1R -> close 50% + break-even
-    tp2_r: float = 2.0
-    tp3_r: float = 3.0  # fallback when no liquidity target
-    sl_min_atr: float = 0.5
+    tp1_r: float = 1.5  # TP1 at 1.5R -> close 50% + break-even
+    tp2_r: float = 2.5
+    tp3_r: float = 3.5  # fallback when no liquidity target
+    sl_min_atr: float = 1.0
     sl_max_atr: float = 2.5
-    trailing_atr: float = 1.0  # after TP1, trail SL by 1 ATR of the setup timeframe
+    trailing_atr: float = 1.5  # after TP1, trail SL by 1.5 ATR of the setup timeframe
     max_hold_minutes: int = 240  # close stale scalps
     close_before_weekend: bool = True
     # Symbols that trade 7 days a week (crypto). Others are skipped while FX/gold is closed.
@@ -68,10 +68,12 @@ class Settings(BaseSettings):
     weekly_max_loss_pct: float = 30.0
     max_drawdown_pct: float = 40.0
     max_open_trades: int = 5
-    max_trades_per_symbol: int = 2
+    max_trades_per_symbol: int = 1
     max_consecutive_losses: int = 5
     max_spread_to_sl_ratio: float = 0.20
     news_block_minutes: int = 15
+    reentry_cooldown_min: int = 15  # no new entry on the same symbol for N minutes after an entry
+    loss_cooldown_min: int = 30  # ...and N minutes after a losing exit on that symbol
 
     # --- Telegram analyst channels -----------------------------------------
     tg_api_id: str | None = None

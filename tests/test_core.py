@@ -168,4 +168,18 @@ def test_engine_adopts_positions_after_restart():
     e.manage_positions()
     tk = b.positions()[0]["ticket"]
     assert tk in e.plans and e.plans[tk]["partial_done"] is False
-    assert abs(e.plans[tk]["tp1"] - (b.positions()[0]["price_open"] + 5)) < 1e-6
+    assert abs(e.plans[tk]["tp1"] - (b.positions()[0]["price_open"] + 5 * settings.tp1_r)) < 1e-6
+
+
+def test_cooldown_blocks_reentry():
+    import time as _t
+    from app.engine import Engine
+    from app.risk import risk_engine
+    risk_engine.release()
+    b = PaperBroker(["XAUUSD"], balance=1000.0)
+    e = Engine(b)
+    e.execution_mode = "AUTO"
+    e.cooldown_until["XAUUSD"] = _t.time() + 600
+    card = {"symbol": "XAUUSD", "grade": "STRONG", "direction": "BUY", "auto_ok": True, "id": "c1"}
+    e.on_card(card)
+    assert not b.positions()
