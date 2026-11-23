@@ -11,6 +11,7 @@ Every executed trade always has a stop loss: the analyst's, else one placed from
 from __future__ import annotations
 
 import asyncio
+import re
 import json
 import base64
 import hashlib
@@ -101,7 +102,11 @@ class TelegramBridge:
         wanted = [normalize(w.strip()) for w in (settings.tg_channels + "," + settings.tg_channels_extra).split(",") if w.strip()]
         self.channels = {}
         async for d in self.client.iter_dialogs():
-            if (d.is_channel or d.is_group) and any(w in normalize(d.name or "") for w in wanted):
+            nm = normalize(d.name or "")
+            if re.search(r"غزه|gaza|abn|صفقه|ذهب|gold|vip|سكالب|scalp", nm, re.I):
+                print("TGDIALOG", json.dumps({"name": d.name, "channel": d.is_channel, "group": d.is_group,
+                                              "last": d.date.strftime("%m-%d %H:%M") if d.date else None}, ensure_ascii=False), flush=True)
+            if (d.is_channel or d.is_group) and any(w in nm for w in wanted):
                 self.channels[d.id] = d.name
         if not self.channels:
             self.status = "مربوط — لم أجد القنوات المطلوبة في حسابك"
