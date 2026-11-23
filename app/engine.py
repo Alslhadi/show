@@ -62,8 +62,10 @@ class Engine:
         return str(plan.get("source", "")).startswith("TG") or str(p.get("comment", "")).startswith("TG")
 
     def profit_lock(self) -> str | None:
-        """Ratchet: once the day is up profit_lock_start_usd, keep profit_lock_keep_pct of the best gain.
-        If equity falls back below that floor, the bot's own entries pause until the next day."""
+        """Step ratchet. When the day is up >= profit_lock_start_usd, a floor keeps profit_lock_keep_pct
+        of the best gain. Falling under it pauses the bot's own entries for profit_lock_pause_min, then
+        it resumes and measures new gains from there. The highest floor ever reached is a hard line:
+        dropping one trade's risk below it ends bot trading for the day. Telegram is unaffected."""
         st = risk_engine.state
         try:
             eq = self.broker.account().equity
@@ -71,20 +73,31 @@ class Engine:
             return None
         if st.day_start_equity is None:
             return None
-        day = datetime.now(timezone.utc).date()
+        now, day = time.time(), datetime.now(timezone.utc).date()
         if getattr(self, "_lock_day", None) != day:
-            self._lock_day, self._day_peak, self._locked = day, eq, False
+            self._lock_day, self._base, self._day_peak = day, st.day_start_equity, eq
+            self._pause_until, self._hard_floor, self._day_stop = 0.0, None, False
+        if self._day_stop:
+            return "تم تأمين ربح اليوم — توقف لين بكرة"
+        if now < self._pause_until:
+            return "استراحة بعد تأمين الربح"
+        if self._hard_floor and eq < self._hard_floor - eq * settings.scalp_risk_pct / 100:
+            self._day_stop = True
+            self.log("warn", f"تأمين الأرباح: نزل تحت الحد المحمي {self._hard_floor:.2f}$ — توقف لين بكرة")
+            return "تم تأمين ربح اليوم — توقف لين بكرة"
         self._day_peak = max(self._day_peak, eq)
-        best = self._day_peak - st.day_start_equity
+        best = self._day_peak - self._base
+        self.lock_floor = None
         if best >= settings.profit_lock_start_usd:
-            floor = st.day_start_equity + best * settings.profit_lock_keep_pct / 100
+            floor = self._base + best * settings.profit_lock_keep_pct / 100
             self.lock_floor = round(floor, 2)
-            if eq < floor and not self._locked:
-                self._locked = True
-                self.log("warn", f"تأمين الأرباح: الإكويتي نزل تحت {floor:.2f}$ — إيقاف دخول البوت لين بكرة (تلجرام مستمر)")
-        else:
-            self.lock_floor = None
-        return f"تم تأمين ربح اليوم (الحد {self.lock_floor}$)" if self._locked else None
+            if eq < floor:
+                self._hard_floor = max(self._hard_floor or 0, floor)
+                self._pause_until = now + settings.profit_lock_pause_min * 60
+                self._base, self._day_peak = eq, eq  # new gains measured from here after the pause
+                self.log("warn", f"تأمين الأرباح: حافظنا على {floor - st.day_start_equity:.2f}$ — استراحة {settings.profit_lock_pause_min} دقيقة")
+                return "استراحة بعد تأمين الربح"
+        return None
 
     def trading_permitted(self) -> tuple[bool, str]:
         if risk_engine.state.kill_switch:

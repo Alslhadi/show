@@ -81,8 +81,9 @@ class Settings(BaseSettings):
     scalp_cooldown_min: int = 2  # same-symbol pause after an entry
     scalp_loss_cooldown_min: int = 10  # same-symbol pause after a loss
     scalp_max_open: int = 4
-    profit_lock_start_usd: float = 3.0  # once the day is up this much...
+    profit_lock_start_usd: float = 5.0  # once the day is up this much...
     profit_lock_keep_pct: float = 50.0  # ...keep at least this % of the day's best gain; below it, bot entries pause till tomorrow
+    profit_lock_pause_min: int = 45  # pause after a give-back, then resume
     tg_max_per_symbol: int = 4  # Telegram trades are separate: entries + reinforcements per symbol
     boost_risk_pct: float = 5.0  # STRONG setup while the day is in profit and no loss streak -> risk up to this
     reentry_cooldown_min: int = 15  # no new entry on the same symbol for N minutes after an entry

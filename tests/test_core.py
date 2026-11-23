@@ -210,8 +210,10 @@ def test_profit_lock_pauses_after_giveback():
     from app.risk import risk_engine
     b = PaperBroker(["XAUUSD"], balance=100.0)
     e = Engine(b)
-    risk_engine.state.day_start_equity = 90.0  # day up $10 at peak
+    risk_engine.state.day_start_equity = 98.0
     assert e.profit_lock() is None
-    risk_engine.state.day_start_equity = 98.0  # simulate: peak 100 recorded, now treat as gave back
     e._day_peak = 110.0  # best gain 12 -> floor 104 > equity 100
-    assert e.profit_lock()
+    assert e.profit_lock()  # pause
+    assert e._hard_floor and e._pause_until > 0
+    e._pause_until = 0
+    assert e.profit_lock() is None or e._day_stop  # resumes unless far below the hard floor
