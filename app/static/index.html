@@ -158,6 +158,30 @@ select,input{background:var(--panel2);color:var(--text);border:1px solid var(--l
   </div>
 </section>
 
+<!-- TELEGRAM -->
+<section id="t-tg">
+  <div class="card">
+    <h3>ربط تلجرام <span class="sp"></span><span id="tgSt" class="pill">—</span></h3>
+    <div id="tgLogin">
+      <div class="row"><input id="tgPhone" placeholder="+9715xxxxxxxx" inputmode="tel" style="flex:1"><button class="btn pri" onclick="tgSend()">أرسل الكود</button></div>
+      <div class="row" style="margin-top:8px"><input id="tgCode" placeholder="الكود من تلجرام" inputmode="numeric" style="flex:1"><button class="btn" onclick="tgSign()">دخول</button></div>
+      <div class="row" id="tgPwRow" style="margin-top:8px;display:none"><input id="tgPw" type="password" placeholder="كلمة سر التحقق بخطوتين" style="flex:1"><button class="btn" onclick="tgSign(true)">تأكيد</button></div>
+    </div>
+    <div id="tgMsg" class="ev" style="margin-top:8px"></div>
+    <div id="tgCh" class="ev" style="margin-top:6px"></div>
+  </div>
+  <div class="card">
+    <h3>طريقة التعامل مع التوصيات</h3>
+    <select id="tgMode" onchange="tgSetMode(this.value)">
+      <option value="track">تسجيل فقط (بدون تداول)</option>
+      <option value="smart">ذكي: يتداول إذا سجل المحلل مثبت أو تحليل النظام يوافق</option>
+      <option value="follow">متابعة كاملة: ينفذ كل توصية (بوقف دائماً)</option>
+    </select>
+  </div>
+  <div class="card"><h3>أداء القنوات (نتائج حقيقية محسوبة)</h3><div style="overflow-x:auto"><table id="tgStats"></table></div></div>
+  <div class="card"><h3>آخر التوصيات</h3><div id="tgSigs" style="display:grid;gap:8px"></div></div>
+</section>
+
 <!-- LOGS -->
 <section id="t-log"><div class="card"><h3>سجل النظام</h3><div id="logBox"></div></div></section>
 </main>
@@ -167,6 +191,7 @@ select,input{background:var(--panel2);color:var(--text);border:1px solid var(--l
   <button data-t="sig"><i>◎</i>الفرص</button>
   <button data-t="pos"><i>▤</i>الصفقات</button>
   <button data-t="risk"><i>⛨</i>المخاطر</button>
+  <button data-t="tg"><i>✈</i>تلجرام</button>
   <button data-t="log"><i>≡</i>السجل</button>
 </nav>
 
@@ -197,6 +222,7 @@ document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
   document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("on", x === b));
   document.querySelectorAll("section").forEach(s => s.classList.toggle("on", s.id === "t-" + b.dataset.t));
   if (b.dataset.t === "over") setTimeout(() => chart && chart.timeScale().fitContent(), 50);
+  if (b.dataset.t === "tg") tgLoad();
 });
 
 function start() {
@@ -334,6 +360,40 @@ async function testExness() {
       الرافعة: <span class="num">${esc(set.leverage || "—")}</span> · صفقات مفتوحة: <span class="num">${r.open_positions}</span>`;
   } catch (e) { $("exOut").textContent = e.message; }
 }
+const OUT = {TP: "هدف ✓", SL: "وقف ✗", BE: "تعادل", "closed by analyst": "أغلقها المحلل", "timeout 24h": "انتهت 24س", "not triggered": "لم يتفعل"};
+async function tgLoad() {
+  try {
+    const r = await api("/api/tg/status");
+    $("tgSt").textContent = r.status; $("tgSt").className = "pill " + (r.status.includes("يستمع") ? "ok" : "gold");
+    $("tgLogin").style.display = r.status.includes("مربوط") && !r.status.includes("غير") ? "none" : "block";
+    $("tgMode").value = r.mode;
+    $("tgCh").innerHTML = r.channels.length ? "القنوات: " + r.channels.map(esc).join(" · ") : "";
+    const st = Object.entries(r.stats || {});
+    $("tgStats").innerHTML = `<tr><th>القناة</th><th>توصيات</th><th>منتهية</th><th>فوز</th><th>متوسط R</th></tr>` +
+      (st.map(([c, v]) => `<tr><td>${esc(c)}</td><td class="num">${v.signals}</td><td class="num">${v.closed}</td><td class="num">${v.win_rate ?? "—"}%</td><td class="num ${v.avg_r > 0 ? "up" : v.avg_r < 0 ? "down" : ""}">${v.avg_r ?? "—"}</td></tr>`).join("") || `<tr><td colspan="5" class="mute">لا توجد بيانات بعد</td></tr>`);
+    $("tgSigs").innerHTML = (r.signals || []).filter(x => x.kind === "OPEN").map(x => `<div class="sig">
+      <div class="top"><span class="sym">${esc(x.symbol)}</span><span class="${x.side === "BUY" ? "up" : "down"}">${x.side === "BUY" ? "شراء" : "بيع"}</span>
+      <span class="sp"></span><span class="pill">${esc(x.channel)}</span></div>
+      <div class="lv num"><div><b>دخول</b>${px(x.entry)}</div><div><b>وقف ${x.sl_source && x.sl_source.startsWith("auto") ? "(تلقائي)" : ""}</b><span class="down">${px(x.sl)}</span></div><div><b>هدف</b><span class="up">${px(x.tp)}</span></div></div>
+      <div class="ev">${esc(x.status === "closed" ? (OUT[x.outcome] || x.outcome) + " · " + x.r_multiple + "R" : x.status === "pending" ? "أمر معلق بانتظار السعر" : "مفتوحة")}${x.executed ? " · نُفذت في حسابك" : ""}${x.note ? " · " + esc(x.note) : ""}</div>
+      <div class="ev" style="opacity:.7">${esc(x.text)}</div></div>`).join("") || '<div class="ev">لا توجد توصيات بعد</div>';
+  } catch (e) { $("tgMsg").textContent = e.message; }
+}
+setInterval(() => { if ($("t-tg").classList.contains("on")) tgLoad(); }, 15000);
+async function tgSend() {
+  $("tgMsg").textContent = "جارٍ الإرسال…";
+  const r = await api("/api/tg/send-code", {method: "POST", body: JSON.stringify({phone: $("tgPhone").value})});
+  $("tgMsg").textContent = r.message;
+}
+async function tgSign(withPw) {
+  $("tgMsg").textContent = "جارٍ الدخول…";
+  const body = withPw ? {password: $("tgPw").value} : {code: $("tgCode").value};
+  const r = await api("/api/tg/sign-in", {method: "POST", body: JSON.stringify(body)});
+  $("tgMsg").textContent = r.message;
+  if (r.need_password) $("tgPwRow").style.display = "flex";
+  if (r.ok) tgLoad();
+}
+async function tgSetMode(m) { await api("/api/tg/mode", {method: "POST", body: JSON.stringify({mode: m})}); }
 async function calcLot() {
   try {
     const r = await api("/api/lot-size", {method: "POST", body: JSON.stringify({symbol: $("lcSym").value, entry: +$("lcEntry").value, sl: +$("lcSl").value})});

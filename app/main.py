@@ -31,6 +31,10 @@ def make_broker():
 
 
 engine = Engine(make_broker())
+from .telegram_bridge import TelegramBridge  # noqa: E402
+from . import storage  # noqa: E402
+
+tg = TelegramBridge(engine)
 
 
 def market_open(now=None) -> bool:
@@ -61,6 +65,19 @@ async def keep_awake() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    try:
+        await asyncio.to_thread(storage.init)
+    except Exception as e:
+        print("STORAGE_INIT_FAILED", e, flush=True)
+
+    async def tg_boot():
+        try:
+            await tg.start()
+        except Exception as e:
+            tg.status = f"خطأ: {e}"
+        print("TELEGRAM", tg.status, flush=True)
+    tg_task = asyncio.create_task(tg_boot())
+    tracker = asyncio.create_task(tg.tracker_loop())
     task = asyncio.create_task(engine.run(interval=5.0 if settings.data_source.upper() == "EXNESS" else 2.0))
     pinger = asyncio.create_task(keep_awake())
     if settings.exn_api_key and settings.exn_private_key and settings.data_source.upper() != "EXNESS":
@@ -80,6 +97,8 @@ async def lifespan(app: FastAPI):
     yield
     task.cancel()
     pinger.cancel()
+    tracker.cancel()
+    tg_task.cancel()
 
 
 app = FastAPI(title="AI Trading Command Center", lifespan=lifespan)
@@ -144,6 +163,57 @@ def exness_test():
                 "open_positions": len(snap.get("positions", [])), "active_orders": len(snap.get("orders", []))}
     except Exception as e:
         return {"ok": False, "message": str(e)}
+
+
+# ---- Telegram ------------------------------------------------------------------
+@app.get("/api/tg/status", dependencies=[Depends(auth)])
+async def tg_status():
+    return await asyncio.to_thread(tg.snapshot)
+
+
+class PhoneIn(BaseModel):
+    phone: str
+
+
+@app.post("/api/tg/send-code", dependencies=[Depends(auth)])
+async def tg_send_code(b: PhoneIn):
+    try:
+        return await tg.send_code(b.phone.strip())
+    except Exception as e:
+        return {"ok": False, "message": str(e)}
+
+
+class CodeIn(BaseModel):
+    code: str | None = None
+    password: str | None = None
+
+
+@app.post("/api/tg/sign-in", dependencies=[Depends(auth)])
+async def tg_sign_in(b: CodeIn):
+    try:
+        return await tg.sign_in((b.code or "").strip(), b.password)
+    except Exception as e:
+        return {"ok": False, "message": str(e)}
+
+
+@app.post("/api/tg/logout", dependencies=[Depends(auth)])
+async def tg_logout():
+    await tg.logout()
+    return {"ok": True}
+
+
+class TgModeIn(BaseModel):
+    mode: str
+
+
+@app.post("/api/tg/mode", dependencies=[Depends(auth)])
+def tg_mode(b: TgModeIn):
+    if b.mode not in ("track", "smart", "follow"):
+        raise HTTPException(400, "وضع غير معروف")
+    settings.tg_mode = b.mode
+    storage.kv_set("tg_mode", b.mode)
+    engine.log("info", f"وضع توصيات تلجرام: {b.mode}")
+    return {"ok": True}
 
 
 class ModeIn(BaseModel):

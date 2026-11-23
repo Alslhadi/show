@@ -73,6 +73,17 @@ class Settings(BaseSettings):
     max_spread_to_sl_ratio: float = 0.20
     news_block_minutes: int = 15
 
+    # --- Telegram analyst channels -----------------------------------------
+    tg_api_id: str | None = None
+    tg_api_hash: str | None = None
+    tg_session_key: str | None = None
+    tg_channels: str = "الصفقة الصباحية,ABNGAZA"
+    tg_mode: str = "smart"  # track | smart | follow
+    tg_min_closed: int = 10
+    tg_min_winrate: float = 50.0
+    tg_agree_score: float = 50.0
+    tg_risk_pct: float = 2.0
+
     # --- Security ---------------------------------------------------------
     dashboard_token: str = "change-me"
     webhook_secret: str = "change-me-too"

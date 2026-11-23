@@ -9,3 +9,5 @@ websockets>=12
 pytest>=8
 # Windows + MT5 only:
 MetaTrader5>=5.0.45; sys_platform == "win32"
+telethon>=1.36
+psycopg[binary]>=3.1
