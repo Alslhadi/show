@@ -36,8 +36,10 @@ def test_track_mode_records_with_auto_sl_and_no_trade(monkeypatch):
     s = storage.list_signals()[0]
     assert s["side"] == "SELL" and s["sl"] > s["entry"] and s["sl_source"] .startswith("auto") and not s["executed"]
     assert not b.positions()
+    n = len(storage.list_signals())
+    assert n == settings.tg_legs  # quick + runner legs
     asyncio.run(br.handle("قناة", 1, "بيع ذهب الان"))  # duplicate message id ignored
-    assert len(storage.list_signals()) == 1
+    assert len(storage.list_signals()) == n
 
 
 def test_follow_mode_executes_with_stop(monkeypatch):
