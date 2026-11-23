@@ -110,7 +110,7 @@ class RiskEngine:
     # --- pre-trade validation -------------------------------------------------
     def validate(self, *, symbol: str, direction: str, entry: float, sl: float, tp: float, lots: float,
                  spec: SymbolSpec, acc: AccountState, open_positions: list, spread: float,
-                 margin_required: float | None = None) -> list[str]:
+                 margin_required: float | None = None, per_symbol_limit: int | None = None) -> list[str]:
         errs: list[str] = []
         if self.state.kill_switch:
             errs.append(f"KILL SWITCH مفعّل: {self.state.kill_reason}")
@@ -133,7 +133,7 @@ class RiskEngine:
             errs.append(f"السبريد {spread / sl_dist:.0%} من مسافة الوقف — مرتفع")
         if len(open_positions) >= settings.max_open_trades:
             errs.append("بلوغ الحد الأقصى للصفقات المفتوحة")
-        if sum(1 for p in open_positions if p.get("symbol") == symbol) >= settings.max_trades_per_symbol:
+        if sum(1 for p in open_positions if p.get("symbol") == symbol) >= (per_symbol_limit or settings.max_trades_per_symbol):
             errs.append("بلوغ الحد الأقصى للصفقات على هذا الرمز")
         risk_money = sl_dist / spec.tick_size * spec.tick_value * lots
         if acc.equity and risk_money / acc.equity * 100 > settings.max_risk_per_trade_pct + 1e-9:

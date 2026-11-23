@@ -159,7 +159,8 @@ def test_engine_auto_executes_and_manages():
     assert all(p["volume"] >= 0.01 for p in b.positions())
 
 
-def test_engine_adopts_positions_after_restart():
+def test_engine_adopts_positions_after_restart(monkeypatch):
+    monkeypatch.setattr(settings, "strategy_mode", "SMC")
     from app.engine import Engine
     b = PaperBroker(["XAUUSD"], balance=1000.0)
     px = b.tick("XAUUSD")["ask"]
@@ -202,3 +203,15 @@ def test_boost_only_when_green_and_strong():
     st.consecutive_losses = 1
     assert e._maybe_boost(card, "auto")["lots"] == 0.30
     st.consecutive_losses = 0
+
+
+def test_profit_lock_pauses_after_giveback():
+    from app.engine import Engine
+    from app.risk import risk_engine
+    b = PaperBroker(["XAUUSD"], balance=100.0)
+    e = Engine(b)
+    risk_engine.state.day_start_equity = 90.0  # day up $10 at peak
+    assert e.profit_lock() is None
+    risk_engine.state.day_start_equity = 98.0  # simulate: peak 100 recorded, now treat as gave back
+    e._day_peak = 110.0  # best gain 12 -> floor 104 > equity 100
+    assert e.profit_lock()

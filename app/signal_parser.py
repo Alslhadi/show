@@ -30,6 +30,7 @@ BREAKEVEN = r"امن دخولك|امنو|امن الصفق|تامين|نقل ا�
 SELL = r"\bبيع\b|بيعو|\bsell\b"
 BUY = r"\bشراء\b|\bشرا\b|\bشري\b|اشتر|\bbuy\b"
 PENDING = r"معلق|ليمت|limit|pending|منطقه الدخول|منطقه دخول"
+ADD = r"تعزيز|عزز|عززو|اضافه|اضف|ضيف|زود|زيد|دبل|add|re-?entry"
 LIGHT = r"خفيف|صغير|بحذر|light|small"
 NUM = r"(\d{3,6}(?:\.\d+)?)"
 
@@ -53,6 +54,8 @@ def parse(text: str) -> dict:
 
     side = "SELL" if re.search(SELL, t) else "BUY" if re.search(BUY, t) else None
     if not side:
+        if re.search(ADD, t):  # "عززوا" without a side -> add to the channel's current trade
+            return {"kind": "ADD", "light": bool(re.search(LIGHT, t))}
         return out
     # results/recaps like "+50pips بيع" are not new instructions
     if re.search(r"pips|نقطه ربح|مبروك|ربح", t) and not re.search(r"الان|دخول|ادخل|معلق|سريع", t):

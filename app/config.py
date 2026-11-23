@@ -72,6 +72,16 @@ class Settings(BaseSettings):
     max_consecutive_losses: int = 5
     max_spread_to_sl_ratio: float = 0.20
     news_block_minutes: int = 15
+    strategy_mode: str = "SCALP"  # SCALP = many small fixed-$ trades; SMC = swing/structure strategy
+    scalp_tp_usd: float = 1.5  # take profit per trade in account $
+    scalp_sl_usd: float = 1.5  # stop per trade in account $ (always set)
+    scalp_max_minutes: int = 30  # close a scalp that hasn't resolved
+    scalp_cooldown_min: int = 2  # same-symbol pause after an entry
+    scalp_loss_cooldown_min: int = 10  # same-symbol pause after a loss
+    scalp_max_open: int = 3
+    profit_lock_start_usd: float = 3.0  # once the day is up this much...
+    profit_lock_keep_pct: float = 50.0  # ...keep at least this % of the day's best gain; below it, bot entries pause till tomorrow
+    tg_max_per_symbol: int = 4  # Telegram trades are separate: entries + reinforcements per symbol
     boost_risk_pct: float = 5.0  # STRONG setup while the day is in profit and no loss streak -> risk up to this
     reentry_cooldown_min: int = 15  # no new entry on the same symbol for N minutes after an entry
     loss_cooldown_min: int = 30  # ...and N minutes after a losing exit on that symbol

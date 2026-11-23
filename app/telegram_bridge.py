@@ -170,6 +170,14 @@ class TelegramBridge:
             await asyncio.to_thread(storage.insert_signal, {**rec, "status": "done"})
             self.engine.log("info", f"تلجرام [{channel}]: أمر إدارة {p['kind']}")
             return p
+        if p["kind"] == "ADD":
+            last = await asyncio.to_thread(storage.list_signals, ("open",), channel, 1)
+            if not last:
+                return p
+            l0 = last[0]
+            p = {"kind": "OPEN", "symbol": l0["symbol"], "side": l0["side"], "sl": l0["sl"], "tp": l0["tp"],
+                 "light": p.get("light", False)}
+            self.engine.log("info", f"تلجرام [{channel}]: تعزيز {l0['side']} {l0['symbol']}")
         sym, side = p["symbol"], p["side"]
         tick = await asyncio.to_thread(self.engine.broker.tick, sym)
         price = tick["ask"] if side == "BUY" else tick["bid"]

@@ -57,6 +57,35 @@ class Engine:
         return bool(settings.live_trading_enabled and settings.live_confirmed_account
                     and str(acc.get("account_id")) == str(settings.live_confirmed_account))
 
+    def _is_tg(self, p: dict) -> bool:
+        plan = self.plans.get(p["ticket"]) or {}
+        return str(plan.get("source", "")).startswith("TG") or str(p.get("comment", "")).startswith("TG")
+
+    def profit_lock(self) -> str | None:
+        """Ratchet: once the day is up profit_lock_start_usd, keep profit_lock_keep_pct of the best gain.
+        If equity falls back below that floor, the bot's own entries pause until the next day."""
+        st = risk_engine.state
+        try:
+            eq = self.broker.account().equity
+        except Exception:
+            return None
+        if st.day_start_equity is None:
+            return None
+        day = datetime.now(timezone.utc).date()
+        if getattr(self, "_lock_day", None) != day:
+            self._lock_day, self._day_peak, self._locked = day, eq, False
+        self._day_peak = max(self._day_peak, eq)
+        best = self._day_peak - st.day_start_equity
+        if best >= settings.profit_lock_start_usd:
+            floor = st.day_start_equity + best * settings.profit_lock_keep_pct / 100
+            self.lock_floor = round(floor, 2)
+            if eq < floor and not self._locked:
+                self._locked = True
+                self.log("warn", f"تأمين الأرباح: الإكويتي نزل تحت {floor:.2f}$ — إيقاف دخول البوت لين بكرة (تلجرام مستمر)")
+        else:
+            self.lock_floor = None
+        return f"تم تأمين ربح اليوم (الحد {self.lock_floor}$)" if self._locked else None
+
     def trading_permitted(self) -> tuple[bool, str]:
         if risk_engine.state.kill_switch:
             return False, f"KILL SWITCH: {risk_engine.state.kill_reason}"
@@ -79,8 +108,12 @@ class Engine:
         tfs = (settings.tf_dominant, settings.tf_confirm, settings.tf_setup, settings.tf_entry)
         frames = {tf: self.broker.candles(symbol, tf, 300) for tf in tfs}
         t = self.broker.tick(symbol)
-        card = evaluate(symbol, frames, self.broker.spec(symbol), self.broker.account(),
-                        spread=t["ask"] - t["bid"], news_blocked=self.news_block(symbol))
+        if settings.strategy_mode.upper() == "SCALP":
+            from .scalp import evaluate as scalp_eval
+            card = scalp_eval(symbol, frames, self.broker.spec(symbol), t["ask"] - t["bid"], self.news_block(symbol))
+        else:
+            card = evaluate(symbol, frames, self.broker.spec(symbol), self.broker.account(),
+                            spread=t["ask"] - t["bid"], news_blocked=self.news_block(symbol))
         card["spread"] = t["ask"] - t["bid"]
         card["data_source"] = "SIMULATION" if self.broker.is_simulation else "MT5"
         return card
@@ -101,9 +134,12 @@ class Engine:
         margin = None
         if hasattr(self.broker, "margin_required"):
             margin = self.broker.margin_required(sym, d, card["lots"], entry)
+        tg = source.startswith("TG")
+        group = [p for p in self.broker.positions() if self._is_tg(p) == tg]  # Telegram and bot trades are separate books
         errs = risk_engine.validate(symbol=sym, direction=d, entry=entry, sl=card["sl"], tp=card["tp3"],
-                                    lots=card["lots"], spec=spec, acc=acc, open_positions=self.broker.positions(),
-                                    spread=t["ask"] - t["bid"], margin_required=margin)
+                                    lots=card["lots"], spec=spec, acc=acc, open_positions=group,
+                                    spread=t["ask"] - t["bid"], margin_required=margin,
+                                    per_symbol_limit=settings.tg_max_per_symbol if tg else None)
         if errs:
             self.log("warn", "محرك المخاطر رفض الأمر", symbol=sym, errors=errs)
             return {"ok": False, "message": "؛ ".join(errs)}
@@ -111,9 +147,12 @@ class Engine:
         res = self.broker.market_order(sym, d, card["lots"], card["sl"], card["tp3"], f"{source}", client_id)
         audit("order", source=source, card_id=client_id, symbol=sym, direction=d, lots=card["lots"], result=res)
         if res.get("ok"):
-            self.cooldown_until[sym] = max(self.cooldown_until.get(sym, 0), time.time() + settings.reentry_cooldown_min * 60)
+            scalp = card.get("strategy") == "SCALP"
+            cd = settings.scalp_cooldown_min if scalp else settings.reentry_cooldown_min
+            self.cooldown_until[sym] = max(self.cooldown_until.get(sym, 0), time.time() + cd * 60)
             self.plans[res["ticket"]] = {"tp1": card["tp1"], "tp2": card["tp2"], "entry": entry, "sl": card["sl"],
-                                         "atr": card.get("atr_setup", 0), "direction": d, "partial_done": False}
+                                         "atr": card.get("atr_setup", 0), "direction": d, "partial_done": False,
+                                         "scalp": scalp, "source": source}
             self.log("info", f"تم تنفيذ {d} {sym} {card['lots']} لوت — {res.get('message', '')}", ticket=res["ticket"])
         else:
             self.log("error", "فشل التنفيذ", symbol=sym, result=res)
@@ -160,6 +199,19 @@ class Engine:
                 self.broker.close(p["ticket"], reason="max hold")
                 self.log("info", "إغلاق: تجاوزت أقصى مدة", ticket=p["ticket"])
                 continue
+            if plan.get("scalp"):
+                if mkt_time - p["time_open"] > settings.scalp_max_minutes * 60:
+                    self.broker.close(p["ticket"], reason="scalp timeout")
+                    self.log("info", "سكالب: انتهى الوقت — إغلاق", ticket=p["ticket"])
+                    continue
+                # 70% of the way to target -> lock break-even (+spread) so a winner can't turn into a loss
+                tgt, ent = plan["tp1"], plan["entry"]
+                if not plan["partial_done"] and abs(tgt - ent) > 0 and (px - ent) / (tgt - ent) >= 0.7:
+                    lock = ent + 0.15 * (tgt - ent)
+                    if self.broker.modify(p["ticket"], lock, None).get("ok"):
+                        plan["partial_done"], plan["sl"] = True, lock
+                        self.log("info", "سكالب: قفل الربح عند التعادل+", ticket=p["ticket"])
+                continue
             if not plan["partial_done"]:
                 if (px >= plan["tp1"]) if buy else (px <= plan["tp1"]):
                     spec = self.broker.spec(p["symbol"])
@@ -184,6 +236,11 @@ class Engine:
         sl, entry = p.get("sl"), p.get("price_open")
         if not sl or not entry:
             return None
+        if settings.strategy_mode.upper() == "SCALP" and p.get("tp"):
+            plan = {"tp1": p["tp"], "tp2": p["tp"], "entry": entry, "sl": sl, "atr": 0, "direction": p["direction"],
+                    "partial_done": ((sl >= entry) if p["direction"] == "BUY" else (sl <= entry)), "scalp": True}
+            self.plans[p["ticket"]] = plan
+            return plan
         buy = p["direction"] == "BUY"
         risk = (entry - sl) if buy else (sl - entry)
         try:
@@ -205,7 +262,14 @@ class Engine:
         self.signals[card["symbol"]] = card
         if card["grade"] == "NO_TRADE":
             return
-        if prev and prev.get("grade") == card["grade"] and prev.get("direction") == card["direction"]:
+        scalp = card.get("strategy") == "SCALP"
+        if self.profit_lock():
+            return
+        if scalp:
+            pos = [p for p in self.broker.positions() if not self._is_tg(p)]
+            if any(p["symbol"] == card["symbol"] for p in pos) or len(pos) >= settings.scalp_max_open:
+                return
+        elif prev and prev.get("grade") == card["grade"] and prev.get("direction") == card["direction"]:
             return  # same setup still standing; avoid duplicate orders
         wait = self.cooldown_until.get(card["symbol"], 0) - time.time()
         if wait > 0:
@@ -268,8 +332,8 @@ class Engine:
         for h in new_hist[: max(0, len(new_hist) - closed_before)]:
             risk_engine.record_result(h.get("profit", 0))
             if h.get("profit", 0) < 0 and h.get("symbol"):
-                self.cooldown_until[h["symbol"]] = max(self.cooldown_until.get(h["symbol"], 0),
-                                                       time.time() + settings.loss_cooldown_min * 60)
+                lc = settings.scalp_loss_cooldown_min if settings.strategy_mode.upper() == "SCALP" else settings.loss_cooldown_min
+                self.cooldown_until[h["symbol"]] = max(self.cooldown_until.get(h["symbol"], 0), time.time() + lc * 60)
         self.status.update(loop_ok=True, last_loop=today.timestamp(), error=None)
         if time.time() - getattr(self, "_hb", 0) > 300:  # heartbeat every 5 min
             self._hb = time.time()

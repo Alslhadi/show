@@ -62,3 +62,9 @@ def test_tracker_resolves_outcome(monkeypatch):
             break
     st = storage.channel_stats()["قناة"]
     assert st["signals"] == 1
+
+
+def test_parse_add():
+    from app.signal_parser import parse
+    assert parse("عززوا الصفقة")["kind"] == "ADD"
+    assert parse("تعزيز شراء ذهب ستوب 2300")["kind"] == "OPEN"
