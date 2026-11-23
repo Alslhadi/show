@@ -81,6 +81,7 @@ class Settings(BaseSettings):
     scalp_cooldown_min: int = 2  # same-symbol pause after an entry
     scalp_loss_cooldown_min: int = 10  # same-symbol pause after a loss
     scalp_max_open: int = 4
+    votes_min_agree: int = 12  # of 20 indicators on the setup TF must agree with the direction
     profit_lock_start_usd: float = 5.0  # once the day is up this much...
     profit_lock_keep_pct: float = 50.0  # ...keep at least this % of the day's best gain; below it, bot entries pause till tomorrow
     profit_lock_pause_min: int = 45  # pause after a give-back, then resume

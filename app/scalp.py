@@ -59,6 +59,16 @@ def evaluate(symbol: str, frames: dict, spec, spread: float, news_blocked: str |
             score += 10
         else:
             g.append(f"RSI ممتد ({rsi:.0f})")
+    if direction:
+        from .votes import vote
+        vt = vote(m5)
+        agree = vt["buy"] if direction == "BUY" else vt["sell"]
+        card["votes"] = vt
+        card["votes_line"] = f"{agree}/{vt['total']} مؤشر موافق"
+        if agree < settings.votes_min_agree:
+            g.append(f"المؤشرات ما تتفق: {agree}/{vt['total']} (المطلوب {settings.votes_min_agree})")
+        else:
+            score = min(100, score + (agree - settings.votes_min_agree))
     if news_blocked:
         g.append(f"خبر قوي: {news_blocked}")
     card.update(direction=direction, score=score)

@@ -35,3 +35,11 @@ def test_scalp_sizes_to_money_and_always_has_stop():
 def test_scalp_rejects_without_trend_agreement():
     c = evaluate("XAUUSD", {"M15": _frame(300, 0.5), "M5": _frame(300, -0.5), "M1": _frame(300, 0.5)}, GOLD, spread=0.2)
     assert c["grade"] == "NO_TRADE"
+
+
+def test_votes_20_indicators():
+    from app.votes import vote
+    up = vote(_frame(300, 0.5))
+    assert up["total"] == 20 and up["buy"] > up["sell"]
+    dn = vote(_frame(300, -0.5))
+    assert dn["sell"] > dn["buy"]

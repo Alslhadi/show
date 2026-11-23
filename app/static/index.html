@@ -343,6 +343,7 @@ function sigCard(c, pending) {
     ${c.grade === "NO_TRADE" ? `<div class="ev" style="color:var(--text)">NO TRADE — WAIT FOR CONFIRMATION</div>` : ""}
     ${lv}
     ${(c.evidence || []).length ? `<div class="ev">${c.evidence.map(e => `• ${esc(e.factor)}: ${esc(e.detail)}`).join("<br>")}</div>` : ""}
+    ${c.votes_line ? `<div class="ev">📊 ${esc(c.votes_line)} — ${Object.entries(c.votes.votes).map(([k, v]) => (v > 0 ? "🟢" : v < 0 ? "🔴" : "⚪") + esc(k)).join(" ")}</div>` : ""}
     ${(c.gates_failed || []).length ? `<div class="gates">${c.gates_failed.map(g => "✕ " + esc(g)).join("<br>")}</div>` : ""}
     ${c.invalidation ? `<div class="ev">الإلغاء: ${esc(c.invalidation)}</div>` : ""}
     ${pending ? `<div class="row"><button class="btn pri sm" onclick="approve('${c.id}')">موافقة وتنفيذ</button><button class="btn sm" onclick="reject('${c.id}')">رفض</button></div>` : ""}
