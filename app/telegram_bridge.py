@@ -96,10 +96,11 @@ class TelegramBridge:
     async def _attach(self) -> None:
         from telethon import events
         self.me = await self.client.get_me()
-        wanted = [w.strip() for w in settings.tg_channels.split(",") if w.strip()]
+        from .signal_parser import normalize
+        wanted = [normalize(w.strip()) for w in (settings.tg_channels + "," + settings.tg_channels_extra).split(",") if w.strip()]
         self.channels = {}
         async for d in self.client.iter_dialogs():
-            if d.is_channel and any(w.lower() in (d.name or "").lower() for w in wanted):
+            if (d.is_channel or d.is_group) and any(w in normalize(d.name or "") for w in wanted):
                 self.channels[d.id] = d.name
         if not self.channels:
             self.status = "مربوط — لم أجد القنوات المطلوبة في حسابك"

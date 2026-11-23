@@ -103,6 +103,7 @@ class Settings(BaseSettings):
     profit_lock_keep_pct: float = 50.0  # ...keep at least this % of the day's best gain; below it, bot entries pause till tomorrow
     profit_lock_pause_min: int = 45  # pause after a give-back, then resume
     tg_max_per_symbol: int = 6  # Telegram trades are separate: one per entry zone + reinforcements
+    tg_channels_extra: str = "عيسى عدواني,عدواني,Issa Adwani"  # always followed in addition to TG_CHANNELS
     tg_lots: float = 0.01  # fixed lot per Telegram entry (per zone)
     tg_minlot_max_risk_pct: float = 15.0  # refuse a Telegram entry only if 0.01 lot would risk more than this
     tg_context_min: int = 20  # levels posted within N min attach to the analyst's last side-only order  # Telegram trades are separate: entries + reinforcements per symbol
