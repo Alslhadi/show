@@ -104,7 +104,7 @@ class Settings(BaseSettings):
     profit_lock_keep_pct: float = 50.0  # ...keep at least this % of the day's best gain; below it, bot entries pause till tomorrow
     profit_lock_pause_min: int = 45  # pause after a give-back, then resume
     tg_max_per_symbol: int = 6  # Telegram trades are separate: one per entry zone + reinforcements
-    tg_channels_extra: str = ""  # always followed in addition to TG_CHANNELS
+    tg_channels_extra: str = "ابن غزة,ابن غزه,ABN GAZA"  # always followed in addition to TG_CHANNELS
     tg_legs: int = 2  # per analyst entry: quick leg (1st target / 1R) + runner (final target), runner -> BE when quick hits
     tg_pyramid: bool = True  # add one more leg once the runner is +1R in profit (stop at the runner's entry)
     tg_total_risk_pct: float = 35.0  # cap on combined open Telegram risk; extra legs are skipped beyond it

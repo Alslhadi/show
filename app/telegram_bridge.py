@@ -133,13 +133,22 @@ class TelegramBridge:
         async def _poll():
             """Backup to push updates (Telegram sometimes stops delivering channel updates): check every 3s."""
             last = {}
-            cutoff = time.time() - 30 * 60  # catch up on the last 30 min after a restart (DB dedupes)
+            now = time.time()
+            cutoff = now - 30 * 60  # catch up on the last 30 min after a restart (DB dedupes)
             for cid in self.channels:
                 try:
-                    ms = await self.client.get_messages(cid, limit=15)
+                    ms = await self.client.get_messages(cid, limit=30)
+                    # still-valid pending orders from the last 4h are picked up too
+                    for m in sorted(ms, key=lambda x: x.id):
+                        ts = m.date.timestamp()
+                        if now - 4 * 3600 < ts < cutoff:
+                            pp = parse(m.message or "")
+                            if pp.get("kind") == "OPEN" and pp.get("pending"):
+                                await _process(cid, m.id, m.message)
                     old = [m for m in ms if m.date.timestamp() < cutoff]
                     last[cid] = max((m.id for m in old), default=(min((m.id for m in ms), default=1) - 1))
-                except Exception:
+                except Exception as e:
+                    print("TGPOLL_ERROR", e, flush=True)
                     last[cid] = 0
             while True:
                 for cid in list(self.channels):
