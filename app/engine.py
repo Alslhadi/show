@@ -469,8 +469,18 @@ class Engine:
         self.broker.step()
         acc = self.broker.account()
         today = datetime.now(timezone.utc)
-        risk_engine.update_equity(acc, new_day=False)
         closed_before = len(self.broker.history(1000))
+        # deposit / withdrawal / demo reset: balance moves with no new closed deal -> rebase, not a loss
+        lb, ln = getattr(self, "_last_bal", None), getattr(self, "_last_hist_n", None)
+        if acc.equity > 0 and lb and ln == closed_before and abs(acc.balance - lb) > max(1.0, 0.02 * lb):
+            st = risk_engine.state
+            st.day_start_equity = st.week_start_equity = st.peak_equity = acc.equity
+            if st.kill_switch and any(w in st.kill_reason for w in ("تراجع", "اليومي", "الأسبوعي")):
+                risk_engine.release()
+            self.log("info", f"تغيّر الرصيد بدون صفقات ({lb:.2f}$ ← {acc.balance:.2f}$) — إيداع/سحب/إعادة ضبط، إعادة احتساب الحدود")
+        self._last_bal, self._last_hist_n = acc.balance, closed_before
+        if acc.equity > 0:  # ignore transient zero/invalid equity reads
+            risk_engine.update_equity(acc, new_day=False)
         self.manage_positions()
         from .main_hours import fx_market_open
         always = {x.strip().upper() for x in settings.always_open_symbols.split(",") if x.strip()}
