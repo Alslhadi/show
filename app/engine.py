@@ -122,7 +122,7 @@ class Engine:
         now_utc = datetime.now(timezone.utc)
         weekend_close = settings.close_before_weekend and now_utc.weekday() == 4 and now_utc.hour >= 20
         for p in self.broker.positions():
-            plan = self.plans.get(p["ticket"])
+            plan = self.plans.get(p["ticket"]) or self._adopt(p)
             if not plan:
                 continue
             buy = p["direction"] == "BUY"
@@ -153,6 +153,28 @@ class Engine:
             if (new_sl > plan["sl"]) if buy else (new_sl < plan["sl"]):
                 if self.broker.modify(p["ticket"], new_sl, None).get("ok"):
                     plan["sl"] = new_sl
+
+    def _adopt(self, p: dict) -> dict | None:
+        """Rebuild a management plan for a position opened before a restart, from the
+        broker's own state (entry, SL). Never widens anything; if no SL, leave it alone."""
+        sl, entry = p.get("sl"), p.get("price_open")
+        if not sl or not entry:
+            return None
+        buy = p["direction"] == "BUY"
+        risk = (entry - sl) if buy else (sl - entry)
+        try:
+            from .indicators import atr as atr_fn
+            a = float(atr_fn(self.broker.candles(p["symbol"], settings.tf_setup, 100)).iloc[-1])
+        except Exception:
+            a = abs(risk) or 0
+        be_done = risk <= 0  # SL already at/after entry -> TP1 stage already passed
+        sgn = 1 if buy else -1
+        plan = {"tp1": entry + sgn * settings.tp1_r * abs(risk), "tp2": entry + sgn * settings.tp2_r * abs(risk),
+                "entry": entry, "sl": sl, "atr": a, "direction": p["direction"], "partial_done": be_done}
+        self.plans[p["ticket"]] = plan
+        self.log("info", "استلام إدارة صفقة مفتوحة بعد إعادة التشغيل", ticket=p["ticket"], symbol=p["symbol"],
+                 stage="تتبع الوقف" if be_done else "بانتظار TP1")
+        return plan
 
     def on_card(self, card: dict) -> None:
         prev = self.signals.get(card["symbol"])

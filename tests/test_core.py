@@ -157,3 +157,15 @@ def test_engine_auto_executes_and_manages():
     acc = b.account()
     assert acc.equity > 0
     assert all(p["volume"] >= 0.01 for p in b.positions())
+
+
+def test_engine_adopts_positions_after_restart():
+    from app.engine import Engine
+    b = PaperBroker(["XAUUSD"], balance=1000.0)
+    px = b.tick("XAUUSD")["ask"]
+    b.market_order("XAUUSD", "BUY", 0.1, px - 5, px + 15, "t", "x9")
+    e = Engine(b)  # fresh engine = no plans (like a restart)
+    e.manage_positions()
+    tk = b.positions()[0]["ticket"]
+    assert tk in e.plans and e.plans[tk]["partial_done"] is False
+    assert abs(e.plans[tk]["tp1"] - (b.positions()[0]["price_open"] + 5)) < 1e-6
