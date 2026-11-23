@@ -109,12 +109,46 @@ class TelegramBridge:
 
         asyncio.create_task(self._dump_history())
 
-        @self.client.on(events.NewMessage(chats=list(self.channels)))
-        async def _on_msg(ev):
+        self._seen_ids: dict = {}
+
+        async def _process(cid, mid, text):
+            key = (cid, mid)
+            if key in self._seen_ids:
+                return
+            self._seen_ids[key] = time.time()
             try:
-                await self.handle(self.channels.get(ev.chat_id, str(ev.chat_id)), ev.message.id, ev.message.message or "")
+                await self.handle(self.channels.get(cid, str(cid)), mid, text or "")
             except Exception as e:
                 self.engine.log("error", f"تلجرام: خطأ في معالجة رسالة: {e}")
+
+        @self.client.on(events.NewMessage(chats=list(self.channels)))
+        async def _on_msg(ev):
+            await _process(ev.chat_id, ev.message.id, ev.message.message)
+
+        async def _poll():
+            """Backup to push updates (Telegram sometimes stops delivering channel updates): check every 3s."""
+            last = {}
+            for cid in self.channels:
+                try:
+                    m = await self.client.get_messages(cid, limit=1)
+                    last[cid] = m[0].id if m else 0
+                except Exception:
+                    last[cid] = 0
+            while True:
+                for cid in list(self.channels):
+                    try:
+                        msgs = await self.client.get_messages(cid, limit=10, min_id=last.get(cid, 0))
+                        for m in sorted(msgs, key=lambda x: x.id):
+                            last[cid] = max(last.get(cid, 0), m.id)
+                            await _process(cid, m.id, m.message)
+                    except Exception as e:
+                        print("TGPOLL_ERROR", e, flush=True)
+                if len(self._seen_ids) > 5000:
+                    cut = time.time() - 86400
+                    self._seen_ids = {k: v for k, v in self._seen_ids.items() if v > cut}
+                await asyncio.sleep(3)
+
+        asyncio.create_task(_poll())
 
         self.status = "مربوط ويستمع"
         self.engine.log("info", f"تلجرام مربوط — القنوات: {', '.join(self.channels.values())}")
