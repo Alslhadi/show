@@ -182,6 +182,14 @@ select,input{background:var(--panel2);color:var(--text);border:1px solid var(--l
   <div class="card"><h3>آخر التوصيات</h3><div id="tgSigs" style="display:grid;gap:8px"></div></div>
 </section>
 
+<!-- NEWS -->
+<section id="t-news">
+  <div class="card"><h3>الأخبار الاقتصادية <span class="sp"></span><span id="nwSt" class="pill">—</span></h3>
+    <div class="ev">🔴 قوي = البوت يوقف الدخول قبل الخبر وبعده بـ 15 دقيقة على الأزواج المتأثرة. 🟠 متوسط = للعلم.</div>
+  </div>
+  <div id="nwList" style="display:grid;gap:8px"></div>
+</section>
+
 <!-- LOGS -->
 <section id="t-log"><div class="card"><h3>سجل النظام</h3><div id="logBox"></div></div></section>
 </main>
@@ -192,6 +200,7 @@ select,input{background:var(--panel2);color:var(--text);border:1px solid var(--l
   <button data-t="pos"><i>▤</i>الصفقات</button>
   <button data-t="risk"><i>⛨</i>المخاطر</button>
   <button data-t="tg"><i>✈</i>تلجرام</button>
+  <button data-t="news"><i>☰</i>الأخبار</button>
   <button data-t="log"><i>≡</i>السجل</button>
 </nav>
 
@@ -223,6 +232,7 @@ document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
   document.querySelectorAll("section").forEach(s => s.classList.toggle("on", s.id === "t-" + b.dataset.t));
   if (b.dataset.t === "over") setTimeout(() => chart && chart.timeScale().fitContent(), 50);
   if (b.dataset.t === "tg") tgLoad();
+  if (b.dataset.t === "news") nwLoad();
 });
 
 function start() {
@@ -380,6 +390,24 @@ async function tgLoad() {
   } catch (e) { $("tgMsg").textContent = e.message; }
 }
 setInterval(() => { if ($("t-tg").classList.contains("on")) tgLoad(); }, 15000);
+async function nwLoad() {
+  try {
+    const v = await api("/api/news");
+    $("nwSt").textContent = v.error ? "خطأ" : (v.updated ? "محدّث " + new Date(v.updated * 1000).toLocaleTimeString("ar") : "—");
+    const now = Date.now() / 1000;
+    $("nwList").innerHTML = v.events.length ? v.events.map(e => {
+      const d = new Date(e.time * 1000), m = Math.round((e.time - now) / 60);
+      const when = m > 0 ? (m < 120 ? `بعد ${m} د` : d.toLocaleString("ar", {weekday: "short", hour: "2-digit", minute: "2-digit"})) : (m > -60 ? `قبل ${-m} د` : "انتهى");
+      return `<div class="card" style="margin:0;${m < -30 ? "opacity:.5" : ""}">
+        <div class="row"><b>${e.impact === "High" ? "🔴" : "🟠"} ${e.country} — ${e.title}</b><span class="sp"></span><span class="pill">${when}</span></div>
+        <div class="ev">${e.note}</div>
+        <div class="ev">المتوقع: ${e.forecast || "—"} · السابق: ${e.previous || "—"} · يأثر على: ${e.symbols.join("، ")}</div>
+        ${e.blocking ? '<div class="ev" style="color:var(--red,#f66)">⛔ الدخول موقوف الحين بسبب هالخبر</div>' : ""}
+      </div>`;
+    }).join("") : '<div class="card ev">ما في أخبار مهمة قريبة</div>';
+  } catch (e) { $("nwSt").textContent = "خطأ"; }
+}
+setInterval(() => { if ($("t-news").classList.contains("on")) nwLoad(); }, 60000);
 async function tgSend() {
   $("tgMsg").textContent = "جارٍ الإرسال…";
   const r = await api("/api/tg/send-code", {method: "POST", body: JSON.stringify({phone: $("tgPhone").value})});

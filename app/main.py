@@ -8,6 +8,7 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from .news import news
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -80,6 +81,7 @@ async def lifespan(app: FastAPI):
     tracker = asyncio.create_task(tg.tracker_loop())
     task = asyncio.create_task(engine.run(interval=5.0 if settings.data_source.upper() == "EXNESS" else 2.0))
     pinger = asyncio.create_task(keep_awake())
+    news_task = asyncio.create_task(news.loop(engine))
     if settings.exn_api_key and settings.exn_private_key and settings.data_source.upper() != "EXNESS":
         async def startup_check():
             r = await asyncio.to_thread(exness_test)
@@ -318,6 +320,14 @@ class NewsIn(BaseModel):
     start: float
     end: float
     symbols: list[str] = []
+
+
+@app.get("/api/news", dependencies=[Depends(auth)])
+def get_news():
+    v = news.view()
+    for e in v["events"]:
+        e["blocking"] = any(engine.news_block(sym) for sym in e["symbols"]) and e["impact"] == "High"
+    return v
 
 
 @app.post("/api/news-window", dependencies=[Depends(auth)])
