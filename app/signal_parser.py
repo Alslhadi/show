@@ -97,3 +97,50 @@ def parse(text: str) -> dict:
         o["entry_lo"], o["entry_hi"] = min(a for a, _ in zones), max(b for _, b in zones)
     o["pending"] = bool(re.search(PENDING, t)) and bool(zones)
     return o
+
+
+# ---- dialect for عيسى العدواني: short Gulf phrases, 2-digit price shorthand ("فوق ٢٥" = above xx25) ----
+ISSA_SKIP = r"انام|ماراح|ما راح|تصبحون|صباح الخير|لايف|يوتيوب|تويتر|انستغ|مساحه|ورشه|مسابقه|نصاب|منتحل|\?|؟"
+
+
+def parse_issa(text: str) -> dict:
+    t = normalize(text)
+    if not t.strip() or re.search(ISSA_SKIP, t):
+        return {"kind": "INFO"}
+    if re.search(r"ستوب دخول|ستوب علي الدخول|ستوب ع الدخول", t):
+        return {"kind": "BE"}
+    if re.search(r"سكرنا كل|سكر كل|سكرو|اقفلو|اغلق الكل", t):
+        return {"kind": "CLOSE_ALL"}
+    if re.search(r"تحجز|احجزو|احجز", t):
+        return {"kind": "CLOSE_HALF"}
+    n = r"(\d{2,4}(?:\.\d+)?)"
+    m = re.search(r"(فوق|تحت)\s*" + n + r"[^\n]{0,30}?(بدخل|ادخل|ندخل|يكون الشراء|يكون البيع|شراء|بيع)", t)
+    if m:
+        where, lvl, verb = m.group(1), float(m.group(2)), m.group(3)
+        side = "SELL" if ("بيع" in verb or (where == "تحت" and "شراء" not in verb)) else "BUY"
+        o = {"kind": "OPEN", "symbol": "XAUUSD", "side": side, "zones": [(lvl, lvl)], "pending": True,
+             "short_prices": True, "light": True, "sl": None, "tp": None, "targets": []}
+        s = re.search(r"(?:تحت|فوق)\s*" + n + r"\s*(?:سكره|سكر|ستوب)", t[m.end():])
+        if s:
+            o["sl"] = float(s.group(1))
+        return o
+    s = re.search(r"(?:تحت|فوق)\s*" + n + r"\s*(?:سكره|سكرها|سكر)|ستوب\s*(?:ع|علي)?\s*" + n, t)
+    if s:
+        return {"kind": "SL", "sl": float(s.group(1) or s.group(2)), "short_prices": True}
+    side = "BUY" if re.search(r"(?:ادخل|دخلت|بدخل|ندخل)\s*شراء|شراء ذهب|شراء الذهب", t) else \
+        "SELL" if re.search(r"(?:ادخل|دخلت|بدخل|ندخل)\s*بيع|بيع ذهب|بيع الذهب", t) else None
+    if side:
+        return {"kind": "OPEN", "symbol": "XAUUSD", "side": side, "zones": [], "pending": False, "light": True,
+                "sl": None, "tp": None, "targets": [], "short_prices": True}
+    return {"kind": "INFO"}
+
+
+def expand_short(v: float | None, price: float) -> float | None:
+    """'25' with gold at 3618 -> 3625 (nearest price ending in the given digits)."""
+    if v is None:
+        return None
+    mod = 10 ** len(str(int(v)))
+    if mod > price:
+        return v
+    base = price - price % mod + v
+    return min((base - mod, base, base + mod), key=lambda x: abs(x - price))

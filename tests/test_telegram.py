@@ -81,3 +81,13 @@ def test_parser_real_channel_styles():
     assert p["kind"] == "OPEN" and p["tp"] == 3541 and p["sl"] == 3509 and p["zones"] == [(3517, 3521)]
     assert parse("ابدء بالشراء")["side"] == "BUY"
     assert parse("📊 نتائج تداول يوم 23/11 الجولة الأولى: بيع من 3573 إلى 3568 +50 نقطة")["kind"] == "INFO"
+
+
+def test_issa_dialect():
+    from app.signal_parser import parse_issa, expand_short
+    p = parse_issa("فوق ٢٥ بدخل شراء تحت ٢٠ سكره")
+    assert p["kind"] == "OPEN" and p["side"] == "BUY" and p["sl"] == 20
+    assert parse_issa("ستوب دخول")["kind"] == "BE"
+    assert parse_issa("تحت ٢٢ سكره")["kind"] == "SL"
+    assert parse_issa("راح انام ماراح ادخل على الذهب")["kind"] == "INFO"
+    assert expand_short(25, 3618.4) == 3625 and expand_short(620, 3612) == 3620 and expand_short(3610, 3612) == 3610

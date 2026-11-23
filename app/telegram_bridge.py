@@ -21,7 +21,7 @@ from . import storage
 from .config import settings
 from .indicators import atr as atr_fn
 from .risk import position_size
-from .signal_parser import parse
+from .signal_parser import expand_short, parse, parse_issa
 from .smc import find_swings
 
 
@@ -183,7 +183,16 @@ class TelegramBridge:
         return False, "سجل القناة غير كافٍ وتحليل النظام لا يوافق — تسجيل فقط"
 
     async def handle(self, channel: str, msg_id: int, text: str) -> dict:
-        p = parse(text)
+        from .signal_parser import normalize
+        issa = "عيسي" in normalize(channel) or "عدواني" in normalize(channel)
+        p = parse_issa(text) if issa else parse(text)
+        if p.get("short_prices") and p["kind"] in ("OPEN", "SL"):
+            t0 = await asyncio.to_thread(self.engine.broker.tick, p.get("symbol", "XAUUSD"))
+            px = (t0["bid"] + t0["ask"]) / 2
+            if p.get("zones"):
+                p["zones"] = [(expand_short(a, px), expand_short(b, px)) for a, b in p["zones"]]
+                p["entry_lo"], p["entry_hi"] = min(a for a, _ in p["zones"]), max(b for _, b in p["zones"])
+            p["sl"] = expand_short(p.get("sl"), px)
         rec = {"channel": channel, "msg_id": msg_id, "text": text[:500], "kind": p["kind"]}
         self.recent = ([{"t": time.time(), "channel": channel, "text": text[:200], "parsed": p}] + self.recent)[:50]
         if p["kind"] == "INFO":
@@ -196,6 +205,16 @@ class TelegramBridge:
             await asyncio.to_thread(self._manage, channel, p["kind"])
             await asyncio.to_thread(storage.insert_signal, {**rec, "status": "done"})
             self.engine.log("info", f"تلجرام [{channel}]: أمر إدارة {p['kind']}")
+            return p
+        if p["kind"] == "SL":
+            ctx = (getattr(self, "intent", {}) or {}).get(channel)
+            if ctx:
+                await asyncio.to_thread(self._retarget, channel, ctx, p["sl"], None)
+                for s in await asyncio.to_thread(storage.list_signals, ("pending",), channel, 10):
+                    ok = (p["sl"] < s["entry_lo"]) if s["side"] == "BUY" else (p["sl"] > s["entry_hi"])
+                    if ok:
+                        await asyncio.to_thread(storage.update_signal, s["id"], sl=p["sl"], sl_source="analyst")
+                self.engine.log("info", f"تلجرام [{channel}]: الوقف صار {p['sl']}")
             return p
         if p["kind"] == "CLOSE_ZONE":
             n = await asyncio.to_thread(self._close_zones, channel, p["zones"])
