@@ -68,3 +68,16 @@ def test_parse_add():
     from app.signal_parser import parse
     assert parse("عززوا الصفقة")["kind"] == "ADD"
     assert parse("تعزيز شراء ذهب ستوب 2300")["kind"] == "OPEN"
+
+
+def test_parser_real_channel_styles():
+    from app.signal_parser import parse
+    assert parse("إذا كنت داخل صفقة بيع هل أنت متأكد إنك رح تحقق ربح؟")["kind"] == "INFO"
+    assert parse("لا تبيعو مرة اخرى")["kind"] == "INFO"
+    assert parse("80pips+ اغلق الصفقة 🔥")["kind"] == "CLOSE_ALL"
+    assert parse("يلا اغلق منطقة 86 وابقى في 81")["zones"] == ["86"]
+    assert parse("📍 منطقة الدخول: 3528 – 3533\n🛑 وقف الخسارة: 3542\n🎯 الهدف: 3520")["kind"] == "LEVELS"
+    p = parse("شراء الذهب الآن 3521 - 3517\n1_الهدف 3525\n5_الهدف 3541\nوقف الخسارة 3509")
+    assert p["kind"] == "OPEN" and p["tp"] == 3541 and p["sl"] == 3509 and p["zones"] == [(3517, 3521)]
+    assert parse("ابدء بالشراء")["side"] == "BUY"
+    assert parse("📊 نتائج تداول يوم 23/11 الجولة الأولى: بيع من 3573 إلى 3568 +50 نقطة")["kind"] == "INFO"

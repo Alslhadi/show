@@ -102,7 +102,10 @@ class Settings(BaseSettings):
     profit_lock_start_usd: float = 5.0  # once the day is up this much...
     profit_lock_keep_pct: float = 50.0  # ...keep at least this % of the day's best gain; below it, bot entries pause till tomorrow
     profit_lock_pause_min: int = 45  # pause after a give-back, then resume
-    tg_max_per_symbol: int = 4  # Telegram trades are separate: entries + reinforcements per symbol
+    tg_max_per_symbol: int = 6  # Telegram trades are separate: one per entry zone + reinforcements
+    tg_lots: float = 0.01  # fixed lot per Telegram entry (per zone)
+    tg_minlot_max_risk_pct: float = 15.0  # refuse a Telegram entry only if 0.01 lot would risk more than this
+    tg_context_min: int = 20  # levels posted within N min attach to the analyst's last side-only order  # Telegram trades are separate: entries + reinforcements per symbol
     boost_risk_pct: float = 5.0  # STRONG setup while the day is in profit and no loss streak -> risk up to this
     reentry_cooldown_min: int = 15  # no new entry on the same symbol for N minutes after an entry
     loss_cooldown_min: int = 30  # ...and N minutes after a losing exit on that symbol
@@ -112,7 +115,7 @@ class Settings(BaseSettings):
     tg_api_hash: str | None = None
     tg_session_key: str | None = None
     tg_channels: str = "الصفقة الصباحية,ABNGAZA"
-    tg_mode: str = "smart"  # track | smart | follow
+    tg_mode: str = "follow"  # track | smart | follow
     tg_min_closed: int = 10
     tg_min_winrate: float = 50.0
     tg_agree_score: float = 50.0

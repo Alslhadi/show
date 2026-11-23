@@ -168,7 +168,8 @@ class Engine:
         errs = risk_engine.validate(symbol=sym, direction=d, entry=entry, sl=card["sl"], tp=card["tp3"],
                                     lots=card["lots"], spec=spec, acc=acc, open_positions=group,
                                     spread=t["ask"] - t["bid"], margin_required=margin,
-                                    per_symbol_limit=settings.tg_max_per_symbol if tg else None)
+                                    per_symbol_limit=settings.tg_max_per_symbol if tg else None,
+                                    max_risk_pct=settings.tg_minlot_max_risk_pct if tg else None)
         if errs:
             self.log("warn", "محرك المخاطر رفض الأمر", symbol=sym, errors=errs)
             return {"ok": False, "message": "؛ ".join(errs)}

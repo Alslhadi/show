@@ -55,6 +55,9 @@ class TelegramBridge:
         if not self.configured():
             self.status = "مفاتيح تلجرام غير موجودة"
             return
+        if not await asyncio.to_thread(storage.kv_get, "tg_mode_v2"):  # one-time switch to follow mode (user request)
+            await asyncio.to_thread(storage.kv_set, "tg_mode", "follow")
+            await asyncio.to_thread(storage.kv_set, "tg_mode_v2", "1")
         saved_mode = await asyncio.to_thread(storage.kv_get, "tg_mode")
         if saved_mode in ("track", "smart", "follow"):
             settings.tg_mode = saved_mode
@@ -184,39 +187,111 @@ class TelegramBridge:
         self.recent = ([{"t": time.time(), "channel": channel, "text": text[:200], "parsed": p}] + self.recent)[:50]
         if p["kind"] == "INFO":
             return p
+        if not hasattr(self, "intent"):
+            self.intent, self.seen = {}, []
+        if p["kind"] == "LIGHT":
+            return p  # every Telegram entry is already the minimum fixed lot
         if p["kind"] in ("BE", "CLOSE_ALL", "CLOSE_HALF"):
             await asyncio.to_thread(self._manage, channel, p["kind"])
             await asyncio.to_thread(storage.insert_signal, {**rec, "status": "done"})
             self.engine.log("info", f"تلجرام [{channel}]: أمر إدارة {p['kind']}")
+            return p
+        if p["kind"] == "CLOSE_ZONE":
+            n = await asyncio.to_thread(self._close_zones, channel, p["zones"])
+            await asyncio.to_thread(storage.insert_signal, {**rec, "status": "done"})
+            self.engine.log("info", f"تلجرام [{channel}]: إغلاق منطقة {'/'.join(p['zones'])} — {n} صفقة")
             return p
         if p["kind"] == "ADD":
             last = await asyncio.to_thread(storage.list_signals, ("open",), channel, 1)
             if not last:
                 return p
             l0 = last[0]
-            p = {"kind": "OPEN", "symbol": l0["symbol"], "side": l0["side"], "sl": l0["sl"], "tp": l0["tp"],
-                 "light": p.get("light", False)}
+            p = {"kind": "OPEN", "symbol": l0["symbol"], "side": l0["side"], "sl": l0["sl"], "tp": l0["tp"], "zones": []}
             self.engine.log("info", f"تلجرام [{channel}]: تعزيز {l0['side']} {l0['symbol']}")
+        if p["kind"] == "LEVELS":
+            ctx = self.intent.get(channel)
+            if not ctx or time.time() - ctx["t"] > settings.tg_context_min * 60:
+                return p
+            p = {**p, "kind": "OPEN", "side": ctx["side"], "symbol": ctx["symbol"], "attach": True}
+            await asyncio.to_thread(self._retarget, channel, ctx, p.get("sl"), p.get("tp"))
         sym, side = p["symbol"], p["side"]
+        self.intent[channel] = {"side": side, "symbol": sym, "t": time.time()}
+        # the analyst cross-posts the same call in several channels: take it once
+        key = (sym, side, tuple(sorted((round(a), round(b)) for a, b in p.get("zones") or [])), p.get("sl") and round(p["sl"]))
+        now = time.time()
+        self.seen = [x for x in self.seen if now - x[1] < 900]
+        if any(x[0] == key for x in self.seen):
+            return p
+        self.seen.append((key, now))
         tick = await asyncio.to_thread(self.engine.broker.tick, sym)
         price = tick["ask"] if side == "BUY" else tick["bid"]
-        sl, sl_src = p.get("sl"), "analyst"
-        if not sl or (side == "BUY" and sl >= price) or (side == "SELL" and sl <= price):
-            sl, sl_src = await asyncio.to_thread(self._auto_sl, sym, side, price), "auto"
-        risk = abs(price - sl)
-        tp = p.get("tp") or (price + 2 * risk if side == "BUY" else price - 2 * risk)
-        pending = p.get("pending") and not (p["entry_lo"] <= price <= p["entry_hi"])
-        row = {**rec, "symbol": sym, "side": side, "entry": None if pending else price,
-               "entry_lo": p.get("entry_lo"), "entry_hi": p.get("entry_hi"), "sl": sl, "sl_source": sl_src,
-               "tp": tp, "status": "pending" if pending else "open"}
-        stored = await asyncio.to_thread(storage.insert_signal, row)
-        if not stored:
-            return p
-        self.engine.log("info", f"تلجرام [{channel}]: توصية {side} {sym} — وقف {round(sl, 3)} ({'المحلل' if sl_src == 'analyst' else 'تلقائي'})")
-        if pending:
-            return p  # tracker activates it when price reaches the zone
-        await asyncio.to_thread(self._maybe_execute, stored, p.get("light", False))
+        zones = p.get("zones") or []
+        tol = price * 0.0005
+        entries = []  # (k, lo, hi, now?)
+        if not zones:
+            entries.append((0, price, price, True))
+        for k, (lo, hi) in enumerate(zones):
+            inside = lo - tol <= price <= hi + tol
+            if p.get("attach") and inside:
+                continue  # the side-only order already filled at market here
+            entries.append((k, lo, hi, inside and not p.get("pending")))
+        for k, lo, hi, now_ in entries:
+            ref = price if now_ else (lo + hi) / 2
+            sl, sl_src = p.get("sl"), "analyst"
+            if not sl or (side == "BUY" and sl >= ref) or (side == "SELL" and sl <= ref):
+                sl, sl_src = await asyncio.to_thread(self._auto_sl, sym, side, ref), "auto"
+            risk = abs(ref - sl)
+            tp = p.get("tp")
+            if not tp or (side == "BUY" and tp <= ref) or (side == "SELL" and tp >= ref):
+                tp = ref + 2 * risk if side == "BUY" else ref - 2 * risk
+            row = {**rec, "msg_id": msg_id * 10 + k, "symbol": sym, "side": side, "entry": price if now_ else None,
+                   "entry_lo": lo, "entry_hi": hi, "sl": sl, "sl_source": sl_src, "tp": tp,
+                   "status": "open" if now_ else "pending"}
+            stored = await asyncio.to_thread(storage.insert_signal, row)
+            if not stored:
+                continue
+            zone_txt = f"{lo:g}" if lo == hi else f"{lo:g}–{hi:g}"
+            self.engine.log("info", f"تلجرام [{channel}]: {side} {sym} منطقة {zone_txt} — "
+                                    f"{'دخول الحين' if now_ else 'معلق لين يوصلها'} · وقف {round(sl, 3)} ({'المحلل' if sl_src == 'analyst' else 'تلقائي'})")
+            if now_:
+                await asyncio.to_thread(self._maybe_execute, stored, False)
         return p
+
+    def _retarget(self, channel: str, ctx: dict, sl, tp) -> None:
+        """Levels arrived after a side-only market order: move that trade's SL/TP to the analyst's."""
+        tickets = {s["ticket"] for s in storage.list_signals(status=("open",), channel=channel, limit=20)
+                   if s["executed"] and s["ticket"] and s["side"] == ctx["side"]}
+        for pos in self.engine.broker.positions():
+            if str(pos["ticket"]) not in tickets:
+                continue
+            buy = pos["direction"] == "BUY"
+            px = pos["price_current"]
+            ok_sl = sl and ((sl < px) if buy else (sl > px))
+            ok_tp = tp and ((tp > px) if buy else (tp < px))
+            if ok_sl or ok_tp:
+                self.engine.broker.modify(pos["ticket"], sl if ok_sl else None, tp if ok_tp else None)
+                plan = self.engine.plans.get(pos["ticket"])
+                if plan and ok_sl:
+                    plan["sl"] = sl
+
+    def _close_zones(self, channel: str, zones: list[str]) -> int:
+        def match(s):
+            vals = [v for v in (s.get("entry_lo"), s.get("entry_hi"), s.get("entry")) if v]
+            return any(str(int(round(v))).endswith(z) for v in vals for z in zones)
+        hit = [s for s in storage.list_signals(status=("open", "pending"), channel=channel, limit=100) if match(s)]
+        tickets = {str(s["ticket"]) for s in hit if s["executed"] and s["ticket"]}
+        n = 0
+        for pos in self.engine.broker.positions():
+            if str(pos["ticket"]) in tickets:
+                self.engine.broker.close(pos["ticket"], reason="analyst zone exit")
+                n += 1
+        for s in hit:
+            if s["status"] == "pending":
+                storage.update_signal(s["id"], status="expired", outcome="zone cancelled")
+            else:
+                t = self.engine.broker.tick(s["symbol"])
+                self._close_virtual(s, t["bid"] if s["side"] == "BUY" else t["ask"], "closed by analyst")
+        return n
 
     def _maybe_execute(self, sig: dict, light: bool) -> None:
         ok, why = self._should_execute(sig["channel"], sig)
@@ -224,20 +299,20 @@ class TelegramBridge:
             storage.update_signal(sig["id"], note=why)
             return
         spec, acc = self.engine.broker.spec(sig["symbol"]), self.engine.broker.account()
-        risk_pct = settings.tg_risk_pct * (0.5 if light else 1.0)
-        size = position_size(acc.equity, risk_pct, sig["entry"], sig["sl"], spec)
-        if size["lots"] <= 0:  # small account: take the broker minimum if its risk stays under the cap
-            loss_min = size.get("loss_per_lot", 0) * spec.volume_min
-            if acc.equity and loss_min and loss_min / acc.equity * 100 <= settings.hybrid_minlot_max_risk_pct:
-                size = {**size, "lots": spec.volume_min}
-            else:
-                storage.update_signal(sig["id"], note=size["reason"])
-                return
-        r = abs(sig["entry"] - sig["sl"])
+        t = self.engine.broker.tick(sig["symbol"])
+        entry = t["ask"] if sig["side"] == "BUY" else t["bid"]
+        lots = max(spec.volume_min, round(settings.tg_lots / spec.volume_step) * spec.volume_step)
+        loss = abs(entry - sig["sl"]) / spec.tick_size * spec.tick_value * lots
+        if acc.equity and loss / acc.equity * 100 > settings.tg_minlot_max_risk_pct:
+            storage.update_signal(sig["id"], note=f"الوقف بعيد: {lots} لوت يخاطر {loss / acc.equity * 100:.0f}%")
+            self.engine.log("warn", f"تلجرام: رفض {sig['symbol']} — {lots} لوت يخاطر {loss:.2f}$")
+            return
+        r = abs(entry - sig["sl"])
         sgn = 1 if sig["side"] == "BUY" else -1
         card = {"id": f"tg{sig['id']}x{int(time.time())}", "symbol": sig["symbol"], "direction": sig["side"],
-                "grade": "TELEGRAM", "lots": size["lots"], "sl": sig["sl"], "tp1": sig["entry"] + sgn * settings.tp1_r * r,
-                "tp2": sig["entry"] + sgn * settings.tp2_r * r, "tp3": sig["tp"], "atr_setup": r / 1.5}
+                "grade": "TELEGRAM", "lots": round(lots, 8), "sl": sig["sl"], "tp1": entry + sgn * settings.tp1_r * r,
+                "tp2": entry + sgn * settings.tp2_r * r, "tp3": sig["tp"], "atr_setup": r / 1.5,
+                "risk": {"risk_money": round(loss, 2)}}
         res = self.engine.execute(card, f"TG {sig['channel'][:12]}")
         storage.update_signal(sig["id"], executed=bool(res.get("ok")), ticket=str(res.get("ticket") or ""),
                               note=why if res.get("ok") else f"رفض: {res.get('message')}")
