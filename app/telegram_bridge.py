@@ -78,7 +78,7 @@ class TelegramBridge:
             return
         await self._attach()
 
-    async def _dump_history(self, per_channel: int = 80) -> None:
+    async def _dump_history(self, per_channel: int = 25) -> None:
         """Log recent channel posts (read-only) so the analyst's style can be reviewed; parses each one."""
         await asyncio.sleep(5)
         for cid, name in self.channels.items():
@@ -187,6 +187,7 @@ class TelegramBridge:
         from .signal_parser import normalize
         issa = "عيسي" in normalize(channel) or "عدواني" in normalize(channel)
         p = parse_issa(text) if issa else parse(text)
+        print("TGMSG", json.dumps({"ch": channel[:20], "kind": p["kind"], "txt": text[:300]}, ensure_ascii=False), flush=True)
         if p.get("short_prices") and p["kind"] in ("OPEN", "SL"):
             t0 = await asyncio.to_thread(self.engine.broker.tick, p.get("symbol", "XAUUSD"))
             px = (t0["bid"] + t0["ask"]) / 2
