@@ -139,8 +139,12 @@ class TelegramBridge:
                 try:
                     ms = await self.client.get_messages(cid, limit=30)
                     # still-valid pending orders from the last 4h are picked up too
-                    for m in sorted(ms, key=lambda x: x.id):
+                    ordered = sorted(ms, key=lambda x: x.id)
+                    cancel_ids = [m.id for m in ordered if parse(m.message or "").get("kind") == "CANCEL"]
+                    for m in ordered:
                         ts = m.date.timestamp()
+                        if any(c > m.id for c in cancel_ids):
+                            continue  # the analyst cancelled after this order
                         if now - 4 * 3600 < ts < cutoff:
                             pp = parse(m.message or "")
                             if pp.get("kind") == "OPEN" and pp.get("pending"):
@@ -334,7 +338,7 @@ class TelegramBridge:
             grp = self.groups.setdefault(gid, {"side": side, "sym": sym, "risk": risk, "tp": final, "q": [], "r": [],
                                                 "be": False, "pyr": False, "channel": channel})
             legs = [("Q", quick), ("R", final)][: max(1, settings.tg_legs)] if settings.tg_legs > 1 else [("R", final)]
-            to_run = []
+            to_run, stored_any = [], False
             zone_txt = f"{lo:g}" if lo == hi else f"{lo:g}–{hi:g}"
             for j, (leg, tp) in enumerate(legs):
                 row = {**rec, "msg_id": msg_id * 100 + k * 10 + j, "symbol": sym, "side": side, "entry": price if now_ else None,
@@ -344,10 +348,13 @@ class TelegramBridge:
                 if not stored:
                     continue
                 grp["q" if leg == "Q" else "r"].append(stored["id"])
+                stored_any = True
                 if now_:
                     to_run.append(stored)
             if to_run:  # fire all legs at once: each Exness order waits for its own confirmation
                 await asyncio.gather(*[asyncio.to_thread(self._maybe_execute, r_, False) for r_ in to_run])
+            if not stored_any:
+                continue  # already handled before (restart catch-up): stay quiet
             self.engine.log("info", f"تلجرام [{channel}]: {side} {sym} منطقة {zone_txt} — "
                                     f"{'دخول الحين' if now_ else 'معلق لين يوصلها'} · {len(legs)} صفقات (سريعة {round(quick, 2)} + ممتدة {round(final, 2)}) "
                                     f"· وقف {round(sl, 3)} ({'المحلل' if sl_src == 'analyst' else 'تلقائي'})")
