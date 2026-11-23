@@ -176,6 +176,29 @@ class ExnessBroker(Broker):
         self._candles[key] = df
         return df.iloc[-n:].reset_index(drop=True)
 
+    def candles_history(self, symbol: str, tf: str, total: int = 3000) -> pd.DataFrame:
+        """Page backwards through closed candles (1000 per request) for model training / backtests."""
+        sec = TIMEFRAMES[tf] * 60
+        end, frames = time.time(), []
+        while sum(len(f) for f in frames) < total:
+            r = self.c._request("GET", f"/v1/market-data/accounts/{self.c.account_id}/candles?instrument={symbol}"
+                                       f"&timeframe={tf}&from={_iso(end)}&count=-1000")
+            rows = [{"time": _epoch(c["time"]), "open": c["open"], "high": c["high"], "low": c["low"],
+                     "close": c["close"], "tick_volume": c.get("volume", 0)} for c in r.get("candles", [])]
+            if not rows:
+                break
+            df = pd.DataFrame(rows).astype(float)
+            frames.append(df)
+            first = float(df["time"].min())
+            if first >= end - sec:
+                break
+            end = first - 1
+        if not frames:
+            return pd.DataFrame(columns=["time", "open", "high", "low", "close", "tick_volume"])
+        out = pd.concat(frames).drop_duplicates("time").sort_values("time")
+        out = out[out["time"] + sec <= time.time()].reset_index(drop=True)
+        return out.iloc[-total:].reset_index(drop=True)
+
     def positions(self) -> list[dict]:
         snap = self._snapshot()
         sltp = {o.get("position_id"): o for o in snap.get("orders", []) if o.get("order_type") == "sltp"}

@@ -182,6 +182,22 @@ select,input{background:var(--panel2);color:var(--text);border:1px solid var(--l
   <div class="card"><h3>آخر التوصيات</h3><div id="tgSigs" style="display:grid;gap:8px"></div></div>
 </section>
 
+<!-- AGENT -->
+<section id="t-ag">
+  <div class="card"><h3>الوكيل الهجين <span class="sp"></span><span id="agSt" class="pill">—</span></h3>
+    <div class="ev">النظام السوقي ← إشارة أولية ← احتمال النجاح (نموذج مدرّب) ← كيلي ربعي ← خروج متدرّج 40/40/20</div>
+    <div class="row" style="margin-top:8px"><button class="btn" onclick="agTrain()">إعادة تدريب النماذج</button></div>
+  </div>
+  <div class="card"><h3>النماذج</h3><div id="agModels" class="ev"></div></div>
+  <div class="card"><h3>بوابات التقييم — صفقات البوت</h3><div id="agBot"></div></div>
+  <div class="card"><h3>صفقات تلجرام</h3><div id="agTg"></div></div>
+  <div class="card"><h3>اختبار Walk-Forward على بيانات Exness</h3>
+    <div class="row"><select id="agSym"><option>XAUUSD</option><option>BTCUSD</option><option>EURUSD</option><option>GBPUSD</option></select>
+    <button class="btn pri" onclick="agBT()">شغّل الاختبار</button></div>
+    <div id="agBTout" class="ev" style="margin-top:8px"></div>
+  </div>
+</section>
+
 <!-- NEWS -->
 <section id="t-news">
   <div class="card"><h3>الأخبار الاقتصادية <span class="sp"></span><span id="nwSt" class="pill">—</span></h3>
@@ -200,6 +216,7 @@ select,input{background:var(--panel2);color:var(--text);border:1px solid var(--l
   <button data-t="pos"><i>▤</i>الصفقات</button>
   <button data-t="risk"><i>⛨</i>المخاطر</button>
   <button data-t="tg"><i>✈</i>تلجرام</button>
+  <button data-t="ag"><i>⚙</i>الوكيل</button>
   <button data-t="news"><i>☰</i>الأخبار</button>
   <button data-t="log"><i>≡</i>السجل</button>
 </nav>
@@ -233,6 +250,7 @@ document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
   if (b.dataset.t === "over") setTimeout(() => chart && chart.timeScale().fitContent(), 50);
   if (b.dataset.t === "tg") tgLoad();
   if (b.dataset.t === "news") nwLoad();
+  if (b.dataset.t === "ag") agLoad();
 });
 
 function start() {
@@ -391,6 +409,33 @@ async function tgLoad() {
   } catch (e) { $("tgMsg").textContent = e.message; }
 }
 setInterval(() => { if ($("t-tg").classList.contains("on")) tgLoad(); }, 15000);
+function agGates(r) {
+  if (!r || !r.trades) return '<div class="ev">ما في صفقات مغلقة مسجّلة للحين</div>';
+  const f = (v) => v === null || v === undefined ? "—" : v;
+  return `<div class="ev">صفقات ${r.trades} · فوز ${Math.round(r.win_rate * 100)}% · صافي ${f(r.net)}$ · PF ${f(r.profit_factor)} · توقع ${f(r.expectancy_r)}R · أقصى تراجع ${f(r.max_dd_usd)}$</div>` +
+    (r.gates || []).map(g => `<div class="ev">${g.ok ? "✅" : "⏳"} ${esc(g.gate)} — ${f(g.value)}</div>`).join("");
+}
+async function agLoad() {
+  try {
+    const v = await api("/api/agent/stats");
+    $("agSt").textContent = v.strategy;
+    $("agModels").innerHTML = Object.keys(v.models).length ? Object.entries(v.models).map(([k, m]) =>
+      `${m.ready ? "🟢" : "🟡"} ${k}: ${m.n} حدث · نجاح أساسي ${Math.round(m.base * 100)}% · AUC ${m.auc ?? "—"}`).join("<br>") : "يتدرّب…";
+    $("agBot").innerHTML = agGates(v.bot);
+    $("agTg").innerHTML = agGates(v.telegram);
+  } catch (e) { $("agSt").textContent = "خطأ"; }
+}
+async function agTrain() { $("agModels").textContent = "يتدرّب… (دقيقة تقريباً)"; try { await api("/api/agent/train", {method: "POST"}); } catch (e) {} agLoad(); }
+async function agBT() {
+  const s = $("agSym").value; $("agBTout").textContent = "يشتغل… (ممكن دقيقة)";
+  try {
+    const r = await api(`/api/agent/backtest/${s}`, {method: "POST"});
+    if (!r.ok) { $("agBTout").textContent = r.message; return; }
+    const o = r.out_of_sample, f = (v) => v ?? "—";
+    $("agBTout").innerHTML = `<b>${s}</b> · ${r.bars} شمعة · ${r.events} إشارة<br>خارج العينة: ${f(o.trades)} صفقة · فوز ${o.win_rate ? Math.round(o.win_rate * 100) : "—"}% · PF ${f(o.profit_factor)} · توقع ${f(o.expectancy_r)}R · أقصى تراجع ${f(o.max_dd_r)}R · WFE ${f(r.wfe)}<br>` +
+      r.verdict.map(g => `${g.ok ? "✅" : "❌"} ${esc(g.gate)} (${f(g.value)})`).join("<br>");
+  } catch (e) { $("agBTout").textContent = "خطأ: " + e.message; }
+}
 async function nwLoad() {
   try {
     const v = await api("/api/news");

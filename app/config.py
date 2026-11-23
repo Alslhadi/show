@@ -72,7 +72,23 @@ class Settings(BaseSettings):
     max_consecutive_losses: int = 5
     max_spread_to_sl_ratio: float = 0.20
     news_block_minutes: int = 15
-    strategy_mode: str = "SCALP"  # SCALP = many small fixed-$ trades; SMC = swing/structure strategy
+    strategy_mode: str = "HYBRID"  # HYBRID = research-playbook agent; SCALP = fixed-$ micro trades; SMC = legacy
+    # --- hybrid agent (regime -> primary signal -> meta-label p -> fractional Kelly; staged exits) ---
+    hybrid_tf: str = "M15"
+    hybrid_sl_atr: float = 1.5  # structural stop distance in ATR
+    hybrid_tp1_r: float = 1.5  # close 40% + break-even
+    hybrid_tp2_r: float = 3.0  # close another 40%
+    hybrid_tp3_r: float = 5.0  # broker-side safety TP; runner is trailed before this
+    hybrid_trail_atr: float = 2.5  # chandelier trail for the runner
+    hybrid_horizon_bars: int = 48  # vertical barrier / time stop (48 x M15 = 12h)
+    hybrid_risk_max_pct: float = 1.5  # ATR-normalised risk cap per trade
+    hybrid_minlot_max_risk_pct: float = 3.0  # allow broker min lot only if it risks <= this
+    hybrid_max_open: int = 4
+    kelly_fraction: float = 0.25  # quarter Kelly
+    meta_p_min: float = 0.45  # meta-model probability threshold
+    meta_min_events: int = 60  # min labelled events before the model may trade
+    meta_train_bars: int = 3000
+    meta_retrain_hours: int = 12
     scalp_risk_pct: float = 2.5  # stop per trade = this % of equity (grows with the account)
     scalp_tp_mult: float = 1.0  # take profit = stop $ x this
     scalp_tp_usd: float = 1.5  # legacy/min floor

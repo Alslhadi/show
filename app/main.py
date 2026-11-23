@@ -82,6 +82,18 @@ async def lifespan(app: FastAPI):
     task = asyncio.create_task(engine.run(interval=5.0 if settings.data_source.upper() == "EXNESS" else 2.0))
     pinger = asyncio.create_task(keep_awake())
     news_task = asyncio.create_task(news.loop(engine))
+
+    async def model_loop():
+        await asyncio.sleep(20)
+        while True:
+            if settings.strategy_mode.upper() == "HYBRID" and engine.broker.connected():
+                try:
+                    r = await asyncio.to_thread(engine.train_models)
+                    print("MODELS", json.dumps(r, ensure_ascii=False, default=str), flush=True)
+                except Exception as e:
+                    print("MODELS_ERROR", e, flush=True)
+            await asyncio.sleep(1800)
+    models_task = asyncio.create_task(model_loop())
     if settings.exn_api_key and settings.exn_private_key and settings.data_source.upper() != "EXNESS":
         async def startup_check():
             r = await asyncio.to_thread(exness_test)
@@ -320,6 +332,39 @@ class NewsIn(BaseModel):
     start: float
     end: float
     symbols: list[str] = []
+
+
+@app.get("/api/agent/stats", dependencies=[Depends(auth)])
+def agent_stats():
+    from .agent.stats import ledger
+    models = {k: {"n": m.n, "base": round(m.base, 3), "auc": round(m.auc, 3) if m.auc else None,
+                  "trained": m.trained, "ready": m.ready} for k, m in engine.models.items()}
+    return {"strategy": settings.strategy_mode, "bot": ledger.report("bot"), "telegram": ledger.report("telegram"),
+            "models": models, "backtests": _BT}
+
+
+_BT: dict = {}
+
+
+@app.post("/api/agent/backtest/{symbol}", dependencies=[Depends(auth)])
+async def agent_backtest(symbol: str):
+    from .agent.backtest import walk_forward
+    symbol = symbol.upper()
+    def run():
+        df = engine.history_candles(symbol, settings.hybrid_tf, settings.meta_train_bars)
+        t = engine.broker.tick(symbol)
+        return walk_forward(df, spread=t["ask"] - t["bid"])
+    r = await asyncio.to_thread(run)
+    r["t"] = time.time()
+    _BT[symbol] = r
+    return r
+
+
+@app.post("/api/agent/train", dependencies=[Depends(auth)])
+async def agent_train():
+    for m in engine.models.values():
+        m.trained = 0
+    return await asyncio.to_thread(engine.train_models)
 
 
 @app.get("/api/news", dependencies=[Depends(auth)])

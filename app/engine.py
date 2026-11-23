@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import time
 import uuid
 from datetime import datetime, timezone
@@ -35,6 +36,7 @@ class Engine:
         self.news_windows: list[dict] = []  # [{"name","start","end","symbols":[...]}] (UTC epoch)
         self.last_m5: dict[str, float] = {}
         self.cooldown_until: dict[str, float] = {}  # symbol -> epoch
+        self.models: dict = {}  # symbol -> MetaModel (hybrid agent)
         self.status = {"started": time.time(), "loop_ok": False, "last_loop": None, "error": None}
         self.subscribers: set[asyncio.Queue] = set()
         self.logs: list[dict] = []
@@ -59,7 +61,14 @@ class Engine:
 
     def _is_tg(self, p: dict) -> bool:
         plan = self.plans.get(p["ticket"]) or {}
-        return str(plan.get("source", "")).startswith("TG") or str(p.get("comment", "")).startswith("TG")
+        if str(plan.get("source", "")).startswith("TG") or str(p.get("comment", "")).startswith("TG"):
+            return True
+        try:
+            from .agent.stats import ledger
+            ledger.load()
+            return str((ledger.open.get(str(p["ticket"])) or {}).get("source", "")).startswith("TG")
+        except Exception:
+            return False
 
     def profit_lock(self) -> str | None:
         """Step ratchet. When the day is up >= profit_lock_start_usd, a floor keeps profit_lock_keep_pct
@@ -119,9 +128,14 @@ class Engine:
     # ---- analysis ------------------------------------------------------------
     def analyze_symbol(self, symbol: str) -> dict:
         tfs = (settings.tf_dominant, settings.tf_confirm, settings.tf_setup, settings.tf_entry)
-        frames = {tf: self.broker.candles(symbol, tf, 300) for tf in tfs}
+        frames = {} if settings.strategy_mode.upper() == "HYBRID" else {tf: self.broker.candles(symbol, tf, 300) for tf in tfs}
         t = self.broker.tick(symbol)
-        if settings.strategy_mode.upper() == "SCALP":
+        if settings.strategy_mode.upper() == "HYBRID":
+            from .agent.hybrid import evaluate as hybrid_eval
+            df = self.broker.candles(symbol, settings.hybrid_tf, 1000)
+            card = hybrid_eval(symbol, df, self.broker.spec(symbol), t["ask"] - t["bid"], self.news_block(symbol),
+                               self.broker.account().equity, self.models.get(symbol))
+        elif settings.strategy_mode.upper() == "SCALP":
             from .scalp import evaluate as scalp_eval
             card = scalp_eval(symbol, frames, self.broker.spec(symbol), t["ask"] - t["bid"], self.news_block(symbol),
                               equity=self.broker.account().equity)
@@ -166,7 +180,14 @@ class Engine:
             self.cooldown_until[sym] = max(self.cooldown_until.get(sym, 0), time.time() + cd * 60)
             self.plans[res["ticket"]] = {"tp1": card["tp1"], "tp2": card["tp2"], "entry": entry, "sl": card["sl"],
                                          "atr": card.get("atr_setup", 0), "direction": d, "partial_done": False,
-                                         "scalp": scalp, "source": source}
+                                         "scalp": scalp, "source": source, "hybrid": card.get("strategy") == "HYBRID",
+                                         "stage": 0, "orig_volume": card["lots"], "peak": entry}
+            try:
+                from .agent.stats import ledger
+                rm = (card.get("risk") or {}).get("risk_money") or abs(entry - card["sl"]) / spec.tick_size * spec.tick_value * card["lots"]
+                ledger.on_open(res["ticket"], sym, source, card.get("strategy") or card.get("grade"), rm, card.get("meta_p"))
+            except Exception as e:
+                self.log("warn", f"سجل الأداء: {e}")
             self.log("info", f"تم تنفيذ {d} {sym} {card['lots']} لوت — {res.get('message', '')}", ticket=res["ticket"])
         else:
             self.log("error", "فشل التنفيذ", symbol=sym, result=res)
@@ -213,6 +234,9 @@ class Engine:
                 self.broker.close(p["ticket"], reason="max hold")
                 self.log("info", "إغلاق: تجاوزت أقصى مدة", ticket=p["ticket"])
                 continue
+            if plan.get("hybrid"):
+                self._manage_hybrid(p, plan, buy, px, mkt_time)
+                continue
             if plan.get("scalp"):
                 if mkt_time - p["time_open"] > settings.scalp_max_minutes * 60:
                     self.broker.close(p["ticket"], reason="scalp timeout")
@@ -244,12 +268,93 @@ class Engine:
                 if self.broker.modify(p["ticket"], new_sl, None).get("ok"):
                     plan["sl"] = new_sl
 
+    def _manage_hybrid(self, p: dict, plan: dict, buy: bool, px: float, mkt_time: float) -> None:
+        """Playbook exits: 40% at +1.5R & stop to break-even; 40% at +3R; runner on a chandelier trail;
+        vertical time-stop if the trade never reached +1.5R. Stops only ever move in the trade's favour."""
+        spec = self.broker.spec(p["symbol"])
+        sgn = 1 if buy else -1
+        orig = plan.get("orig_volume") or p["volume"]
+        chunk = math.floor(orig * 0.4 / spec.volume_step + 1e-9) * spec.volume_step
+        can_part = chunk >= spec.volume_min and p["volume"] - chunk >= spec.volume_min - 1e-9
+        plan["peak"] = max(plan.get("peak", px), px) if buy else min(plan.get("peak", px), px)
+        if plan["stage"] == 0:
+            if mkt_time - p["time_open"] > settings.hybrid_horizon_bars * 15 * 60:
+                self.broker.close(p["ticket"], reason="time stop")
+                self.log("info", "الوكيل: وقف زمني — الصفقة ما تحركت", ticket=p["ticket"])
+                return
+            if (px - plan["tp1"]) * sgn >= 0:
+                if can_part:
+                    self.broker.close(p["ticket"], round(chunk, 8), reason="TP1 40%")
+                if self.broker.modify(p["ticket"], plan["entry"], None).get("ok"):
+                    plan["sl"] = plan["entry"]
+                plan["stage"] = 1
+                self.log("info", "الوكيل: +1.5R — إغلاق 40% ونقل الوقف للتعادل" if can_part
+                         else "الوكيل: +1.5R — نقل الوقف للتعادل (اللوت صغير على التقسيم)", ticket=p["ticket"])
+            return
+        if plan["stage"] == 1 and (px - plan["tp2"]) * sgn >= 0:
+            if can_part:
+                self.broker.close(p["ticket"], round(chunk, 8), reason="TP2 40%")
+            plan["stage"] = 2
+            self.log("info", "الوكيل: +3R — إغلاق 40% إضافية، الباقي يمشي بوقف متحرك", ticket=p["ticket"])
+        trail = settings.hybrid_trail_atr * (plan.get("atr") or 0)
+        if trail > 0:
+            new_sl = plan["peak"] - sgn * trail
+            if (new_sl - plan["sl"]) * sgn > 0 and (px - new_sl) * sgn > 0:
+                if self.broker.modify(p["ticket"], new_sl, None).get("ok"):
+                    plan["sl"] = new_sl
+
+    def train_models(self, symbols=None) -> dict:
+        """Fit/refresh the meta-label model per symbol from the broker's own history. Persisted in kv."""
+        from .agent import meta as M
+        from . import storage
+        out = {}
+        for sym in symbols or settings.symbol_list:
+            try:
+                cur = self.models.get(sym)
+                if cur is None:
+                    raw = storage.kv_get(f"meta:{sym}")
+                    if raw:
+                        cur = self.models[sym] = M.MetaModel.from_json(raw)
+                if cur is not None and time.time() - cur.trained < settings.meta_retrain_hours * 3600:
+                    out[sym] = {"n": cur.n, "base": round(cur.base, 3), "auc": cur.auc, "cached": True}
+                    continue
+                df = self.history_candles(sym, settings.hybrid_tf, settings.meta_train_bars)
+                m = M.train(df)
+                if m is None:
+                    out[sym] = {"error": "أحداث قليلة"}
+                    continue
+                self.models[sym] = m
+                storage.kv_set(f"meta:{sym}", m.to_json())
+                out[sym] = {"n": m.n, "base": round(m.base, 3), "auc": round(m.auc, 3) if m.auc else None}
+                self.log("info", f"الوكيل: تدرّب نموذج {sym} على {m.n} حدث (نسبة النجاح الأساسية {m.base:.0%}، AUC {m.auc and round(m.auc, 2)})")
+            except Exception as e:
+                out[sym] = {"error": str(e)[:200]}
+                self.log("error", f"تدريب نموذج {sym} فشل: {e}")
+        return out
+
+    def history_candles(self, symbol: str, tf: str, total: int):
+        fn = getattr(self.broker, "candles_history", None)
+        return fn(symbol, tf, total) if fn else self.broker.candles(symbol, tf, total)
+
     def _adopt(self, p: dict) -> dict | None:
         """Rebuild a management plan for a position opened before a restart, from the
         broker's own state (entry, SL). Never widens anything; if no SL, leave it alone."""
         sl, entry = p.get("sl"), p.get("price_open")
         if not sl or not entry:
             return None
+        if settings.strategy_mode.upper() == "HYBRID" and not self._is_tg(p):
+            buy = p["direction"] == "BUY"
+            sgn = 1 if buy else -1
+            risk = abs(entry - sl)
+            be = (sl - entry) * sgn >= 0
+            if be:  # stop already at/after entry: rebuild R from the TP if we can, else skip staging
+                risk = abs((p.get("tp") or entry) - entry) / settings.hybrid_tp3_r or risk
+            plan = {"tp1": entry + sgn * settings.hybrid_tp1_r * risk, "tp2": entry + sgn * settings.hybrid_tp2_r * risk,
+                    "entry": entry, "sl": sl, "atr": risk / settings.hybrid_sl_atr, "direction": p["direction"],
+                    "partial_done": be, "hybrid": True, "stage": 1 if be else 0, "orig_volume": p["volume"],
+                    "peak": p["price_current"], "source": "AUTO"}
+            self.plans[p["ticket"]] = plan
+            return plan
         if settings.strategy_mode.upper() == "SCALP" and p.get("tp"):
             plan = {"tp1": p["tp"], "tp2": p["tp"], "entry": entry, "sl": sl, "atr": 0, "direction": p["direction"],
                     "partial_done": ((sl >= entry) if p["direction"] == "BUY" else (sl <= entry)), "scalp": True}
@@ -276,12 +381,13 @@ class Engine:
         self.signals[card["symbol"]] = card
         if card["grade"] == "NO_TRADE":
             return
-        scalp = card.get("strategy") == "SCALP"
+        scalp = card.get("strategy") in ("SCALP", "HYBRID")
         if self.profit_lock():
             return
         if scalp:
+            cap = settings.hybrid_max_open if card.get("strategy") == "HYBRID" else settings.scalp_max_open
             pos = [p for p in self.broker.positions() if not self._is_tg(p)]
-            if any(p["symbol"] == card["symbol"] for p in pos) or len(pos) >= settings.scalp_max_open:
+            if any(p["symbol"] == card["symbol"] for p in pos) or len(pos) >= cap:
                 return
         elif prev and prev.get("grade") == card["grade"] and prev.get("direction") == card["direction"]:
             return  # same setup still standing; avoid duplicate orders
@@ -335,7 +441,8 @@ class Engine:
             if sym not in always and not fx_open:
                 continue  # gold/FX closed: crypto keeps trading
             try:
-                m5 = self.broker.candles(sym, settings.tf_entry, 2)
+                etf = settings.hybrid_tf if settings.strategy_mode.upper() == "HYBRID" else settings.tf_entry
+                m5 = self.broker.candles(sym, etf, 2)
                 last = float(m5["time"].iloc[-1])
                 if self.last_m5.get(sym) != last:  # evaluate once per closed entry-TF candle
                     self.last_m5[sym] = last
@@ -343,7 +450,17 @@ class Engine:
             except Exception as e:  # one bad symbol must not stop the loop
                 self.log("error", f"تحليل {sym} فشل: {e}")
         new_hist = self.broker.history(1000)
-        for h in new_hist[: max(0, len(new_hist) - closed_before)]:
+        fresh = new_hist[: max(0, len(new_hist) - closed_before)]
+        if fresh:
+            try:
+                from .agent.stats import ledger
+                live = {str(p["ticket"]) for p in self.broker.positions()}
+                for tk in {str(h.get("ticket")) for h in fresh}:
+                    if tk not in live:
+                        ledger.on_close(tk, sum(h.get("profit", 0) for h in new_hist if str(h.get("ticket")) == tk))
+            except Exception as e:
+                self.log("warn", f"سجل الأداء: {e}")
+        for h in fresh:
             risk_engine.record_result(h.get("profit", 0))
             if h.get("profit", 0) < 0 and h.get("symbol"):
                 lc = settings.scalp_loss_cooldown_min if settings.strategy_mode.upper() == "SCALP" else settings.loss_cooldown_min
