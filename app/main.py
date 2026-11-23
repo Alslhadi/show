@@ -90,6 +90,18 @@ async def lifespan(app: FastAPI):
                 try:
                     r = await asyncio.to_thread(engine.train_models)
                     print("MODELS", json.dumps(r, ensure_ascii=False, default=str), flush=True)
+                    if not _BT:
+                        from .agent.backtest import walk_forward
+                        for sym in settings.symbol_list:
+                            def run(sym=sym):
+                                df = engine.history_candles(sym, settings.hybrid_tf, settings.meta_train_bars)
+                                t = engine.broker.tick(sym)
+                                return walk_forward(df, spread=t["ask"] - t["bid"])
+                            bt = await asyncio.to_thread(run)
+                            bt["t"] = time.time()
+                            _BT[sym] = bt
+                            print("WALKFORWARD", sym, json.dumps({k: bt.get(k) for k in ("out_of_sample", "in_sample", "wfe", "unfiltered")},
+                                                                    ensure_ascii=False, default=str), flush=True)
                 except Exception as e:
                     print("MODELS_ERROR", e, flush=True)
             await asyncio.sleep(1800)
