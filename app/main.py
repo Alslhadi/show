@@ -90,7 +90,7 @@ async def lifespan(app: FastAPI):
                 try:
                     r = await asyncio.to_thread(engine.train_models)
                     print("MODELS", json.dumps(r, ensure_ascii=False, default=str), flush=True)
-                    if not _BT:
+                    if not _BT or time.time() - min(v.get("t", 0) for v in _BT.values()) > 12 * 3600:
                         from .agent.backtest import walk_forward
                         for sym in settings.symbol_list:
                             def run(sym=sym):
@@ -355,7 +355,7 @@ def agent_stats():
             "models": models, "backtests": _BT}
 
 
-_BT: dict = {}
+_BT: dict = engine.backtests
 
 
 @app.post("/api/agent/backtest/{symbol}", dependencies=[Depends(auth)])

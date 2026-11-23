@@ -41,7 +41,7 @@ def _auc(y, p) -> float | None:
     return float((pos[:, None] > neg[None, :]).mean() + 0.5 * (pos[:, None] == neg[None, :]).mean())
 
 
-def fit(X: np.ndarray, y: np.ndarray, l2: float = 1.0, iters: int = 600, lr: float = 0.1) -> MetaModel:
+def fit(X: np.ndarray, y: np.ndarray, l2: float = 25.0, iters: int = 600, lr: float = 0.1) -> MetaModel:
     mu, sd = X.mean(0), X.std(0)
     sd[sd == 0] = 1
     Z = (X - mu) / sd

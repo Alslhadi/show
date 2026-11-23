@@ -37,6 +37,7 @@ class Engine:
         self.last_m5: dict[str, float] = {}
         self.cooldown_until: dict[str, float] = {}  # symbol -> epoch
         self.models: dict = {}  # symbol -> MetaModel (hybrid agent)
+        self.backtests: dict = {}  # symbol -> latest walk-forward result (evidence gate)
         self.status = {"started": time.time(), "loop_ok": False, "last_loop": None, "error": None}
         self.subscribers: set[asyncio.Queue] = set()
         self.logs: list[dict] = []
@@ -312,7 +313,7 @@ class Engine:
             try:
                 cur = self.models.get(sym)
                 if cur is None:
-                    raw = storage.kv_get(f"meta:{sym}")
+                    raw = storage.kv_get(f"meta2:{sym}")
                     if raw:
                         cur = self.models[sym] = M.MetaModel.from_json(raw)
                 if cur is not None and time.time() - cur.trained < settings.meta_retrain_hours * 3600:
@@ -324,7 +325,7 @@ class Engine:
                     out[sym] = {"error": "أحداث قليلة"}
                     continue
                 self.models[sym] = m
-                storage.kv_set(f"meta:{sym}", m.to_json())
+                storage.kv_set(f"meta2:{sym}", m.to_json())
                 out[sym] = {"n": m.n, "base": round(m.base, 3), "auc": round(m.auc, 3) if m.auc else None}
                 self.log("info", f"الوكيل: تدرّب نموذج {sym} على {m.n} حدث (نسبة النجاح الأساسية {m.base:.0%}، AUC {m.auc and round(m.auc, 2)})")
             except Exception as e:
@@ -384,6 +385,13 @@ class Engine:
         scalp = card.get("strategy") in ("SCALP", "HYBRID")
         if self.profit_lock():
             return
+        if card.get("strategy") == "HYBRID":
+            bt = self.backtests.get(card["symbol"]) or {}
+            oos = bt.get("out_of_sample") or {}
+            if bt.get("ok") and (oos.get("expectancy_r") or 0) <= 0:
+                card["gates_failed"] = card.get("gates_failed", []) + ["الاختبار خارج العينة سالب — الزوج موقوف للبوت"]
+                card["auto_ok"] = False
+                return
         if scalp:
             cap = settings.hybrid_max_open if card.get("strategy") == "HYBRID" else settings.scalp_max_open
             pos = [p for p in self.broker.positions() if not self._is_tg(p)]
