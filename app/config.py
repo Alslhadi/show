@@ -91,7 +91,7 @@ class Settings(BaseSettings):
     meta_min_events: int = 60  # min labelled events before the model may trade
     meta_train_bars: int = 3000
     meta_retrain_hours: int = 12
-    scalp_risk_pct: float = 0.0  # stop per trade = this % of equity (grows with the account)
+    scalp_risk_pct: float = 1.75  # stop = max($1, 1.75% of equity): size grows as the account grows  # stop per trade = this % of equity (grows with the account)
     scalp_tp_mult: float = 2.0  # hard take profit = stop $ x this (capped by scalp_tp_cap_usd)
     scalp_tp_usd: float = 1.0  # min hard TP
     scalp_tp_cap_usd: float = 2.0  # never aim further than this: bank it
@@ -106,7 +106,8 @@ class Settings(BaseSettings):
     scalp_per_symbol: int = 3
     votes_min_agree: int = 10  # of 20 indicators on the setup TF must agree with the direction
     auto_resume_min: int = 45  # automatic limit stops (daily/drawdown/loss streak) pause this long, then resume with limits rebased; manual kill stays
-    hourly_target_usd: float = 13.0  # user challenge: bank this per clock hour, then stop new entries till the next hour
+    hourly_target_usd: float = 0.0  # replaced by the daily target  # user challenge: bank this per clock hour, then stop new entries till the next hour
+    daily_target_usd: float = 320.0  # net daily target (UAE day); when reached: close everything, stop till tomorrow
     profit_lock_enabled: bool = False  # the original strategy ran without it
     profit_lock_start_usd: float = 5.0  # once the day is up this much...
     profit_lock_keep_pct: float = 50.0  # ...keep at least this % of the day's best gain; below it, bot entries pause till tomorrow

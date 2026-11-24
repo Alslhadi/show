@@ -6,7 +6,7 @@ import json
 import math
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .brokers.base import Broker
@@ -72,6 +72,28 @@ class Engine:
         acc = getattr(self.broker, "account_details", lambda: {})() or {}
         return bool(settings.live_trading_enabled and settings.live_confirmed_account
                     and str(acc.get("account_id")) == str(settings.live_confirmed_account))
+
+    def daily_target_hit(self, acc=None) -> bool:
+        """Net daily target on the UAE calendar day. On hit: close every bot/Telegram position and stop
+        new entries until the next UAE day."""
+        if settings.daily_target_usd <= 0:
+            return False
+        try:
+            acc = acc or self.broker.account()
+        except Exception:
+            return False
+        day = (datetime.now(timezone.utc) + timedelta(hours=4)).date()
+        if getattr(self, "_tday", None) != day:
+            self._tday, self._tday_start, self._tday_hit = day, acc.equity, False
+        if self._tday_hit:
+            return True
+        got = acc.equity - self._tday_start
+        if got >= settings.daily_target_usd:
+            self._tday_hit = True
+            for p in self.broker.positions():
+                self.broker.close(p["ticket"], reason="daily target")
+            self.log("info", f"🎯 تحقق هدف اليوم +{got:.2f}$ — إغلاق كل الصفقات ووقف التداول لين بكرة")
+        return self._tday_hit
 
     def hourly_done(self) -> bool:
         """Hourly challenge: once equity is up hourly_target_usd since the top of the hour, stop opening new
@@ -201,6 +223,8 @@ class Engine:
         if card.get("grade") in (None, "NO_TRADE") or not card.get("lots"):
             return {"ok": False, "message": "لا توجد صفقة صالحة"}
         sym, d = card["symbol"], card["direction"]
+        if getattr(self, "_tday_hit", False):
+            return {"ok": False, "message": "تحقق هدف اليوم — التداول موقوف لين بكرة"}
         card = self._maybe_boost(card, source)
         t = self.broker.tick(sym)
         entry = t["ask"] if d == "BUY" else t["bid"]
@@ -452,7 +476,7 @@ class Engine:
         scalp = card.get("strategy") in ("SCALP", "HYBRID")
         if settings.profit_lock_enabled and self.profit_lock():
             return
-        if self.hourly_done():
+        if self.hourly_done() or self.daily_target_hit():
             return
         if card.get("strategy") == "HYBRID":
             bt = self.backtests.get(key) or {}
@@ -523,6 +547,7 @@ class Engine:
             self.log("info", f"تغيّر الرصيد بدون صفقات ({lb:.2f}$ ← {acc.balance:.2f}$) — إيداع/سحب/إعادة ضبط، إعادة احتساب الحدود")
         self._last_bal, self._last_hist_n = acc.balance, closed_before
         self.hourly_done()  # keeps the hourly scoreboard ticking
+        self.daily_target_hit(acc)
         st = risk_engine.state
         if (st.kill_switch and settings.auto_resume_min > 0 and "يدوي" not in st.kill_reason
                 and any(w in st.kill_reason for w in ("تراجع", "اليومي", "الأسبوعي", "متتالية", "خسائر"))
