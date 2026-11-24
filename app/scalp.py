@@ -36,10 +36,10 @@ def evaluate(symbol: str, frames: dict, spec, spread: float, news_blocked: str |
     a1 = float(c["atr"])
     up = t15 == t5 == 1
     dn = t15 == t5 == -1
-    score = 40 + (20 if (up or dn) else 0) + (20 if adx5 >= 18 else 0)
+    score = 40 + (20 if (up or dn) else 0) + (20 if adx5 >= 15 else 0)
     if not (up or dn):
         g.append("M15 و M5 ما يتفقون على الاتجاه")
-    if adx5 < 18:
+    if adx5 < 15:
         g.append(f"السوق بدون اتجاه (ADX {adx5:.0f})")
     direction = "BUY" if up else "SELL" if dn else None
     if direction:
@@ -86,7 +86,7 @@ def evaluate(symbol: str, frames: dict, spec, spread: float, news_blocked: str |
     lots = min(lots, spec.volume_max)
     lots = round(lots, 8)
     sl_money = lots * sl_dist * per_unit
-    cap = min(sl_usd * 2, equity * settings.max_risk_per_trade_pct / 100) if equity else sl_usd * 2
+    cap = min(sl_usd * settings.scalp_sl_cap_mult, equity * settings.max_risk_per_trade_pct / 100) if equity else sl_usd * settings.scalp_sl_cap_mult
     if sl_money > cap:
         g.append(f"أقل لوت يخاطر {sl_money:.2f}$ — أكبر من المسموح")
         return card
