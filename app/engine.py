@@ -497,6 +497,15 @@ class Engine:
                 risk_engine.release()
             self.log("info", f"تغيّر الرصيد بدون صفقات ({lb:.2f}$ ← {acc.balance:.2f}$) — إيداع/سحب/إعادة ضبط، إعادة احتساب الحدود")
         self._last_bal, self._last_hist_n = acc.balance, closed_before
+        st = risk_engine.state
+        if (st.kill_switch and settings.auto_resume_min > 0 and "يدوي" not in st.kill_reason
+                and any(w in st.kill_reason for w in ("تراجع", "اليومي", "الأسبوعي", "متتالية", "خسائر"))
+                and time.time() - st.kill_time > settings.auto_resume_min * 60 and acc.equity > 0):
+            why = st.kill_reason
+            st.day_start_equity = st.week_start_equity = st.peak_equity = acc.equity
+            st.consecutive_losses = 0
+            risk_engine.release()
+            self.log("warn", f"استئناف تلقائي بعد استراحة {settings.auto_resume_min} دقيقة ({why}) — الحدود من الرصيد الحالي {acc.equity:.2f}$")
         if acc.equity > 0:  # ignore transient zero/invalid equity reads
             risk_engine.update_equity(acc, new_day=False)
         self.manage_positions()

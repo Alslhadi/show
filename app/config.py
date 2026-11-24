@@ -104,6 +104,7 @@ class Settings(BaseSettings):
     scalp_max_open: int = 5
     scalp_per_symbol: int = 2
     votes_min_agree: int = 11  # of 20 indicators on the setup TF must agree with the direction
+    auto_resume_min: int = 45  # automatic limit stops (daily/drawdown/loss streak) pause this long, then resume with limits rebased; manual kill stays
     profit_lock_enabled: bool = False  # the original strategy ran without it
     profit_lock_start_usd: float = 5.0  # once the day is up this much...
     profit_lock_keep_pct: float = 50.0  # ...keep at least this % of the day's best gain; below it, bot entries pause till tomorrow

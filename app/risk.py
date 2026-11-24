@@ -38,6 +38,7 @@ class AccountState:
 class RiskState:
     kill_switch: bool = False
     kill_reason: str = ""
+    kill_time: float = 0.0
     day_start_equity: float | None = None
     week_start_equity: float | None = None
     peak_equity: float | None = None
@@ -76,6 +77,7 @@ class RiskEngine:
     def kill(self, reason: str) -> None:
         self.state.kill_switch = True
         self.state.kill_reason = reason
+        self.state.kill_time = __import__("time").time()
         self.state.log.append({"t": time.time(), "event": "KILL", "reason": reason})
 
     def release(self) -> None:

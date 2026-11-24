@@ -218,3 +218,20 @@ def test_profit_lock_pauses_after_giveback():
     assert e._hard_floor and e._pause_until > 0
     e._pause_until = 0
     assert e.profit_lock() is None or e._day_stop  # resumes unless far below the hard floor
+
+
+def test_auto_resume_after_limit_pause(monkeypatch):
+    import time as _t
+    from app.engine import Engine
+    from app.risk import risk_engine
+    b = PaperBroker(["XAUUSD"], balance=1000.0)
+    e = Engine(b)
+    risk_engine.kill("5 خسائر متتالية")
+    risk_engine.state.kill_time = _t.time() - 3600
+    e._iteration()
+    assert not risk_engine.state.kill_switch
+    risk_engine.kill("يدوي من اللوحة")
+    risk_engine.state.kill_time = _t.time() - 3600
+    e._iteration()
+    assert risk_engine.state.kill_switch
+    risk_engine.release()
