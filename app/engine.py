@@ -73,6 +73,29 @@ class Engine:
         return bool(settings.live_trading_enabled and settings.live_confirmed_account
                     and str(acc.get("account_id")) == str(settings.live_confirmed_account))
 
+    def hourly_done(self) -> bool:
+        """Hourly challenge: once equity is up hourly_target_usd since the top of the hour, stop opening new
+        trades until the next hour (open trades keep being managed). Never raises risk to catch up."""
+        if settings.hourly_target_usd <= 0:
+            return False
+        try:
+            eq = self.broker.account().equity
+        except Exception:
+            return False
+        hr = int(time.time() // 3600)
+        if getattr(self, "_hr", None) != hr:
+            prev = getattr(self, "_hr_start", None)
+            if prev is not None:
+                got = eq - prev
+                self.hourly_log = (getattr(self, "hourly_log", []) + [{"hour": hr - 1, "pnl": round(got, 2)}])[-48:]
+                self.log("info", f"نتيجة الساعة: {got:+.2f}$ من هدف {settings.hourly_target_usd}$ "
+                                 f"({'✅ تحقق' if got >= settings.hourly_target_usd else '❌ ما تحقق'})")
+            self._hr, self._hr_start, self._hr_hit = hr, eq, False
+        if not self._hr_hit and eq - self._hr_start >= settings.hourly_target_usd:
+            self._hr_hit = True
+            self.log("info", f"🎯 هدف الساعة تحقق (+{eq - self._hr_start:.2f}$) — وقف دخول جديد لين الساعة الجاية")
+        return self._hr_hit
+
     def _is_tg(self, p: dict) -> bool:
         plan = self.plans.get(p["ticket"]) or {}
         if str(plan.get("source", "")).startswith("TG") or str(p.get("comment", "")).startswith("TG"):
@@ -429,6 +452,8 @@ class Engine:
         scalp = card.get("strategy") in ("SCALP", "HYBRID")
         if settings.profit_lock_enabled and self.profit_lock():
             return
+        if self.hourly_done():
+            return
         if card.get("strategy") == "HYBRID":
             bt = self.backtests.get(key) or {}
             oos = bt.get("out_of_sample") or {}
@@ -497,6 +522,7 @@ class Engine:
                 risk_engine.release()
             self.log("info", f"تغيّر الرصيد بدون صفقات ({lb:.2f}$ ← {acc.balance:.2f}$) — إيداع/سحب/إعادة ضبط، إعادة احتساب الحدود")
         self._last_bal, self._last_hist_n = acc.balance, closed_before
+        self.hourly_done()  # keeps the hourly scoreboard ticking
         st = risk_engine.state
         if (st.kill_switch and settings.auto_resume_min > 0 and "يدوي" not in st.kill_reason
                 and any(w in st.kill_reason for w in ("تراجع", "اليومي", "الأسبوعي", "متتالية", "خسائر"))
