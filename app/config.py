@@ -72,7 +72,7 @@ class Settings(BaseSettings):
     max_consecutive_losses: int = 8
     max_spread_to_sl_ratio: float = 0.20
     news_block_minutes: int = 15
-    strategy_mode: str = "SMC"  # SMC = the original structure strategy (user-chosen); HYBRID = research-playbook agent; SCALP = fixed-$ micro trades; SMC = legacy
+    strategy_mode: str = "SCALP"  # SMC = the original structure strategy (user-chosen); HYBRID = research-playbook agent; SCALP = fixed-$ micro trades; SMC = legacy
     # --- hybrid agent (regime -> primary signal -> meta-label p -> fractional Kelly; staged exits) ---
     hybrid_tf: str = "M15"
     hybrid_sl_atr: float = 1.5  # structural stop distance in ATR
@@ -92,14 +92,18 @@ class Settings(BaseSettings):
     meta_train_bars: int = 3000
     meta_retrain_hours: int = 12
     scalp_risk_pct: float = 2.5  # stop per trade = this % of equity (grows with the account)
-    scalp_tp_mult: float = 1.0  # take profit = stop $ x this
-    scalp_tp_usd: float = 1.5  # legacy/min floor
-    scalp_sl_usd: float = 1.5  # legacy/min floor
+    scalp_tp_mult: float = 1.5  # hard take profit = stop $ x this (capped by scalp_tp_cap_usd)
+    scalp_tp_usd: float = 1.0  # min hard TP
+    scalp_tp_cap_usd: float = 2.0  # never aim further than this: bank it
+    scalp_lock_start_usd: float = 0.40  # once a trade has been +$0.40 it can no longer close red
+    scalp_lock_keep: float = 0.6  # ...and keeps 60% of its best open profit (ratchet)
+    scalp_sl_usd: float = 1.0  # min stop $
     scalp_max_minutes: int = 20  # close a scalp that hasn't resolved
-    scalp_cooldown_min: int = 2  # same-symbol pause after an entry
-    scalp_loss_cooldown_min: int = 10  # same-symbol pause after a loss
-    scalp_max_open: int = 4
-    votes_min_agree: int = 12  # of 20 indicators on the setup TF must agree with the direction
+    scalp_cooldown_min: int = 1  # same-symbol pause after an entry
+    scalp_loss_cooldown_min: int = 3  # same-symbol pause after a loss
+    scalp_max_open: int = 5
+    scalp_per_symbol: int = 2
+    votes_min_agree: int = 11  # of 20 indicators on the setup TF must agree with the direction
     profit_lock_enabled: bool = False  # the original strategy ran without it
     profit_lock_start_usd: float = 5.0  # once the day is up this much...
     profit_lock_keep_pct: float = 50.0  # ...keep at least this % of the day's best gain; below it, bot entries pause till tomorrow

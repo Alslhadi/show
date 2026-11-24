@@ -76,7 +76,7 @@ def evaluate(symbol: str, frames: dict, spec, spread: float, news_blocked: str |
         return card
 
     sl_usd = max(settings.scalp_sl_usd, equity * settings.scalp_risk_pct / 100)
-    tp_usd = max(settings.scalp_tp_usd, sl_usd * settings.scalp_tp_mult)
+    tp_usd = min(settings.scalp_tp_cap_usd, max(settings.scalp_tp_usd, sl_usd * settings.scalp_tp_mult))
     price = float(c["close"])
     sl_dist = max(1.5 * a1, 6 * spread, spec.stops_level * spec.point * 1.2)
     per_unit = spec.tick_value / spec.tick_size  # $ per 1.0 price move per 1 lot

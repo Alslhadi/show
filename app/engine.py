@@ -263,17 +263,31 @@ class Engine:
                 self._manage_hybrid(p, plan, buy, px, mkt_time)
                 continue
             if plan.get("scalp"):
-                if mkt_time - p["time_open"] > settings.scalp_max_minutes * 60:
+                spec = self.broker.spec(p["symbol"])
+                sgn = 1 if buy else -1
+                per = spec.tick_value / spec.tick_size * p["volume"]  # $ per 1.0 price move for this position
+                ent = plan["entry"]
+                pnl = (px - ent) * sgn * per
+                plan["peak_usd"] = max(plan.get("peak_usd", 0.0), pnl)
+                peak = plan["peak_usd"]
+                if pnl <= 0 and mkt_time - p["time_open"] > settings.scalp_max_minutes * 60:
                     self.broker.close(p["ticket"], reason="scalp timeout")
-                    self.log("info", "سكالب: انتهى الوقت — إغلاق", ticket=p["ticket"])
+                    self.log("info", "سكالب: ما تحركت — إغلاق", ticket=p["ticket"])
                     continue
-                # 70% of the way to target -> lock break-even (+spread) so a winner can't turn into a loss
-                tgt, ent = plan["tp1"], plan["entry"]
-                if not plan["partial_done"] and abs(tgt - ent) > 0 and (px - ent) / (tgt - ent) >= 0.7:
-                    lock = ent + 0.15 * (tgt - ent)
-                    if self.broker.modify(p["ticket"], lock, None).get("ok"):
-                        plan["partial_done"], plan["sl"] = True, lock
-                        self.log("info", "سكالب: قفل الربح عند التعادل+", ticket=p["ticket"])
+                # profit ratchet: once +$0.40, never let it close red; keep 60% of the best open profit
+                if peak >= settings.scalp_lock_start_usd:
+                    keep = max(0.05, peak * settings.scalp_lock_keep)
+                    lock = ent + sgn * keep / per
+                    if (lock - plan["sl"]) * sgn > 0 and (px - lock) * sgn > 0:
+                        if self.broker.modify(p["ticket"], round(lock, spec.digits), None).get("ok"):
+                            first = not plan.get("partial_done")
+                            plan["sl"], plan["partial_done"] = lock, True
+                            if first:
+                                self.log("info", f"سكالب: تأمين الربح +{keep:.2f}$", ticket=p["ticket"])
+                    elif (px - lock) * sgn <= 0 and pnl > 0:
+                        # price already gave back below the lock level: bank what is left now
+                        self.broker.close(p["ticket"], reason="ratchet")
+                        self.log("info", f"سكالب: حجز الربح +{pnl:.2f}$", ticket=p["ticket"])
                 continue
             if not plan["partial_done"]:
                 if (px >= plan["tp1"]) if buy else (px <= plan["tp1"]):
@@ -428,7 +442,8 @@ class Engine:
             def ptf(p):
                 return (self.plans.get(p["ticket"]) or {}).get("tf") or settings.hybrid_tf
             same = [p for p in pos if p["symbol"] == card["symbol"] and ptf(p) == (card.get("tf") or ptf(p))]
-            if same or len(pos) >= cap:
+            per_sym = settings.scalp_per_symbol if card.get("strategy") == "SCALP" else 1
+            if len(same) >= per_sym or len(pos) >= cap:
                 return
         elif prev and prev.get("grade") == card["grade"] and prev.get("direction") == card["direction"]:
             return  # same setup still standing; avoid duplicate orders
