@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     tf_confirm: str = "M15"
     tf_setup: str = "M5"
     tf_entry: str = "M1"
-    auto_min_score: float = 65.0  # AUTO executes MODERATE (65+) and STRONG (80+)
+    auto_min_score: float = 60.0  # AUTO executes MODERATE (65+) and STRONG (80+)
     tp1_r: float = 1.5  # TP1 at 1.5R -> close 50% + break-even
     tp2_r: float = 2.5
     tp3_r: float = 3.5  # fallback when no liquidity target
@@ -68,7 +68,7 @@ class Settings(BaseSettings):
     weekly_max_loss_pct: float = 30.0
     max_drawdown_pct: float = 40.0
     max_open_trades: int = 5
-    max_trades_per_symbol: int = 1
+    max_trades_per_symbol: int = 2
     max_consecutive_losses: int = 8
     max_spread_to_sl_ratio: float = 0.20
     news_block_minutes: int = 15
@@ -109,11 +109,12 @@ class Settings(BaseSettings):
     tg_legs: int = 2  # per analyst entry: quick leg (1st target / 1R) + runner (final target), runner -> BE when quick hits
     tg_pyramid: bool = True  # add one more leg once the runner is +1R in profit (stop at the runner's entry)
     tg_total_risk_pct: float = 35.0  # cap on combined open Telegram risk; extra legs are skipped beyond it
+    tg_execute: bool = False  # paused by user: Telegram calls are recorded/tracked but not traded
     tg_lots: float = 0.01  # fixed lot per Telegram entry (per zone)
     tg_minlot_max_risk_pct: float = 15.0  # refuse a Telegram entry only if 0.01 lot would risk more than this
     tg_context_min: int = 20  # levels posted within N min attach to the analyst's last side-only order  # Telegram trades are separate: entries + reinforcements per symbol
     boost_risk_pct: float = 5.0  # STRONG setup while the day is in profit and no loss streak -> risk up to this
-    reentry_cooldown_min: int = 15  # no new entry on the same symbol for N minutes after an entry
+    reentry_cooldown_min: int = 8  # no new entry on the same symbol for N minutes after an entry
     loss_cooldown_min: int = 30  # ...and N minutes after a losing exit on that symbol
 
     # --- Telegram analyst channels -----------------------------------------

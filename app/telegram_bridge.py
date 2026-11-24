@@ -374,6 +374,8 @@ class TelegramBridge:
         return tot
 
     def manage_groups(self) -> None:
+        if not settings.tg_execute:
+            return
         if not self.groups:
             return
         pos = {str(p_["ticket"]): p_ for p_ in self.engine.broker.positions()}
@@ -487,6 +489,9 @@ class TelegramBridge:
         return n
 
     def _maybe_execute(self, sig: dict, light: bool) -> None:
+        if not settings.tg_execute:
+            storage.update_signal(sig["id"], note="تنفيذ تلجرام موقوف مؤقتاً — تتبع فقط")
+            return
         ok, why = self._should_execute(sig["channel"], sig)
         if not ok:
             storage.update_signal(sig["id"], note=why)
@@ -515,6 +520,8 @@ class TelegramBridge:
                               note=why if res.get("ok") else f"رفض: {res.get('message')}")
 
     def _manage(self, channel: str, kind: str) -> None:
+        if not settings.tg_execute:
+            return
         # virtual (tracked) signals of this channel
         price_cache: dict[str, dict] = {}
         for s in storage.list_signals(status=("open",), channel=channel):
