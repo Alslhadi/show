@@ -86,6 +86,12 @@ def evaluate(symbol: str, frames: dict, spec, spread: float, news_blocked: str |
     lots = min(lots, spec.volume_max)
     lots = round(lots, 8)
     sl_money = lots * sl_dist * per_unit
+    floor_d = max(0.8 * a1, 6 * spread, spec.stops_level * spec.point * 1.2)
+    if sl_money > sl_usd and lots <= spec.volume_min + 1e-12:
+        # minimum lot: tighten the stop to the $ limit if that still leaves >= 0.8 ATR of room
+        tight = sl_usd / (lots * per_unit)
+        if tight >= floor_d:
+            sl_dist, sl_money = tight, lots * tight * per_unit
     cap = min(sl_usd * settings.scalp_sl_cap_mult, equity * settings.max_risk_per_trade_pct / 100) if equity else sl_usd * settings.scalp_sl_cap_mult
     if sl_money > cap:
         g.append(f"أقل لوت يخاطر {sl_money:.2f}$ — أكبر من المسموح")
