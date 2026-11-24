@@ -103,3 +103,9 @@ def test_repost_of_old_call_is_ignored(monkeypatch):
     n = len(b.positions())
     asyncio.run(br.handle("قناة2", 77, "شراء خفيف وسريع"))  # recap / cross-post later
     assert len(b.positions()) == n
+
+
+def test_levels_map_and_quiz_are_not_orders():
+    from app.signal_parser import parse
+    assert parse("📊 مناطقي الرئيسية علي الذهب\n🔴 مناطق البيع\n1️⃣ 3767\n🟢 مناطق الشراء\n1️⃣ 3558")["kind"] == "INFO"
+    assert parse("علقت أمر تاني تتوقعو بيع ولا شراء")["kind"] == "INFO"

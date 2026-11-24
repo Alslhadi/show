@@ -36,7 +36,9 @@ LIGHT = r"خفيف|صغير|بحذر|light|small"
 # educational posts, questions, recaps, hype, future tense: never instructions
 NOISE = (r"اذا كنت|هل انت|نتائج|اجمالي|الجوله|مبروك|ربحكم|ربحك|شاركني|ابعت|ابعتولي|طمنوني|المقال|نصيحتي|"
          r"للانضمام|اضيفك|كلمني|هدخل|رح ادخل|بعد افتتاح|جاهزين|حضرو|تفعلت|انتظار|لا تبيع|لا تشتر|لا تفوت|"
-         r"تسالنيش|ما شاء الله|الحمد لله|عاشت|يسعد|كانت|صعد الي|نزل من")
+         r"تسالنيش|ما شاء الله|الحمد لله|عاشت|يسعد|كانت|صعد الي|نزل من|"
+         r"مناطقي|المناطق الرئيسيه|مناطق البيع|مناطق الشراء|حدد المناطق|لا تستعجل|تتوقعو|تتوقعون|توقعاتكم|"
+         r"بيع ولا شراء|شراء ولا بيع|مثال|علقت امر|عدم الدخول|عالشارت")
 NUM = r"(\d{3,6}(?:\.\d+)?)"
 
 
@@ -83,7 +85,10 @@ def parse(text: str) -> dict:
     zones = _zones(t)
     sl = _num_after(r"وقف الخساره|ستوب|وقف|sl|stop", t)
     tps = _targets(t)
-    side = "SELL" if re.search(SELL, t) else "BUY" if re.search(BUY, t) else None
+    has_s, has_b = bool(re.search(SELL, t)), bool(re.search(BUY, t))
+    if has_s and has_b and not re.search(PENDING, t):
+        return out  # both directions in one post = analysis/levels map, not an order
+    side = "SELL" if has_s else "BUY" if has_b else None
     light = bool(re.search(LIGHT, t))
     if noisy or (recap and not sl):
         return out
