@@ -38,6 +38,11 @@ def bt_mode(bt: dict) -> str:
     return "min"
 
 
+def P_RR() -> float:
+    from .sniper import P
+    return P["rr"]
+
+
 class Engine:
     def __init__(self, broker: Broker) -> None:
         self.broker = broker
@@ -307,6 +312,9 @@ class Engine:
                 self.broker.close(p["ticket"], reason="max hold")
                 self.log("info", "إغلاق: تجاوزت أقصى مدة", ticket=p["ticket"])
                 continue
+            if plan.get("sniper"):
+                self._manage_sniper(p, plan, buy, px)
+                continue
             if plan.get("hybrid"):
                 self._manage_hybrid(p, plan, buy, px, mkt_time)
                 continue
@@ -390,6 +398,85 @@ class Engine:
             if (new_sl - plan["sl"]) * sgn > 0 and (px - new_sl) * sgn > 0:
                 if self.broker.modify(p["ticket"], new_sl, None).get("ok"):
                     plan["sl"] = new_sl
+
+    # ---- "BTC Smart Re-Entry Sniper" (user's Pine strategy) ---------------------------------------
+    def _sniper_step(self, sym: str) -> None:
+        from . import sniper as SN
+        st = self.__dict__.setdefault("sn_state", {}).setdefault(sym, {})
+        pend = self.__dict__.setdefault("sn_pending", {})
+        spec = self.broker.spec(sym)
+        t = self.broker.tick(sym)
+        mine = [p for p in self.broker.positions() if p["symbol"] == sym and (self.plans.get(p["ticket"]) or {}).get("sniper")]
+        # 1) a pending stop entry from the last closed bar: fire if price confirms, else expire after one bar
+        pd_ = pend.get(sym)
+        if pd_ and not mine:
+            px = t["ask"] if pd_["dir"] > 0 else t["bid"]
+            if time.time() > pd_["expires"]:
+                pend.pop(sym, None)
+            elif (px - pd_["trig"]) * pd_["dir"] >= 0:
+                pend.pop(sym, None)
+                self._sniper_fire(sym, pd_, px, spec)
+        # 2) on each closed bar: tick the bar counters and look for a new setup
+        df = self.broker.candles(sym, settings.sniper_tf, 300)
+        last = float(df["time"].iloc[-1])
+        k = f"sn:{sym}"
+        if self.last_m5.get(k) == last:
+            return
+        self.last_m5[k] = last
+        for c in ("shadow", "cooldown"):
+            if st.get(c, 0) > 0:
+                st[c] -= 1
+        if mine or self.daily_target_hit():
+            return
+        d = SN.prepare(df)
+        sig = SN.signal_at(d, len(d) - 1, st, spec.tick_size)
+        card = {"symbol": sym, "strategy": "SNIPER", "grade": "SNIPER" if sig else "NO_TRADE", "score": 100 if sig else 0,
+                "direction": ("BUY" if sig["dir"] > 0 else "SELL") if sig else None, "created": time.time(),
+                "headline": (f"{sig['why']} — أمر إيقاف عند {sig['trig']:.2f}") if sig else "القناص: يترصد",
+                "gates_failed": [] if sig else ["ما في سحب سيولة بفوليوم"]}
+        self.signals[sym] = card
+        if sig:
+            pend[sym] = {**sig, "expires": time.time() + 2 * 60 * {"M1": 1, "M5": 5, "M15": 15}.get(settings.sniper_tf, 1)}
+            self.log("info", f"القناص {sym}: {sig['why']} — ينتظر التأكيد عند {sig['trig']:.2f}")
+
+    def _sniper_fire(self, sym: str, sg: dict, px: float, spec) -> None:
+        per = spec.tick_value / spec.tick_size
+        sgn = sg["dir"]
+        risk = abs(px - sg["sl"])
+        if (px - sg["sl"]) * sgn <= 0:
+            return
+        budget = settings.scalp_sl_usd
+        lots = math.floor(budget / (risk * per) / spec.volume_step + 1e-9) * spec.volume_step
+        lots = round(max(lots, spec.volume_min), 8)
+        loss = lots * risk * per
+        if loss > budget * settings.scalp_sl_cap_mult:
+            self.log("info", f"القناص {sym}: الستوب يخاطر {loss:.2f}$ — أكبر من حدك، تخطي")
+            return
+        tp = px + sgn * P_RR() * risk
+        card = {"id": f"sn{int(time.time())}", "symbol": sym, "direction": "BUY" if sgn > 0 else "SELL", "grade": "SNIPER",
+                "strategy": "SNIPER", "lots": lots, "sl": round(sg["sl"], spec.digits), "tp1": px + sgn * 0.6 * risk,
+                "tp2": tp, "tp3": round(tp, spec.digits), "atr_setup": sg["atr"], "risk": {"risk_money": round(loss, 2)}}
+        res = self.execute(card, "SNIPER")
+        if res.get("ok"):
+            plan = self.plans.get(res["ticket"])
+            if plan is not None:
+                plan.update(sniper=True, scalp=False, risk=risk, be=False)
+            self.sn_state.setdefault(sym, {})["last_dir"] = sgn
+            self.log("info", f"القناص {sym}: دخل {card['direction']} {lots} — وقف {loss:.2f}$، هدف 1.8R")
+
+    def _manage_sniper(self, p: dict, plan: dict, buy: bool, px: float) -> None:
+        sgn = 1 if buy else -1
+        ent, risk = plan["entry"], plan.get("risk") or abs(plan["entry"] - plan["sl"])
+        if not plan.get("be") and (px - ent) * sgn >= 0.6 * risk:
+            be = ent + sgn * 0.1 * risk
+            if self.broker.modify(p["ticket"], be, None).get("ok"):
+                plan.update(sl=be, be=True)
+                self.log("info", "القناص: تأمين الدخول عند +0.6R", ticket=p["ticket"])
+        elif plan.get("be"):
+            tr = px - sgn * 1.2 * (plan.get("atr") or 0)
+            if plan.get("atr") and (tr - plan["sl"]) * sgn > 0 and (px - tr) * sgn > 0:
+                if self.broker.modify(p["ticket"], tr, None).get("ok"):
+                    plan["sl"] = tr
 
     def _pnl_usd(self, p: dict) -> float:
         spec = self.broker.spec(p["symbol"])
@@ -595,9 +682,18 @@ class Engine:
         fx_open = fx_market_open()
         hybrid = settings.strategy_mode.upper() == "HYBRID"
         jobs = settings.agent_keys if hybrid else [(s_, s_, settings.tf_entry) for s_ in settings.symbol_list]
+        snipe = {x.strip().upper() for x in settings.sniper_symbols.split(",") if x.strip()} \
+            if settings.strategy_mode.upper() == "SCALP" else set()
+        for sym in snipe:
+            try:
+                self._sniper_step(sym)
+            except Exception as e:
+                self.log("error", f"القناص {sym} فشل: {e}")
         for key, sym, etf in jobs:
             if sym not in always and not fx_open:
                 continue  # gold/FX closed: crypto keeps trading
+            if sym in snipe:
+                continue
             try:
                 m5 = self.broker.candles(sym, etf, 2)
                 last = float(m5["time"].iloc[-1])
@@ -620,6 +716,9 @@ class Engine:
         for h in fresh:
             risk_engine.record_result(h.get("profit", 0))
             sym_h = h.get("symbol")
+            if sym_h and sym_h in getattr(self, "sn_state", {}):
+                from . import sniper as _SN
+                _SN.on_closed(self.sn_state[sym_h], h.get("profit", 0))
             if sym_h:
                 st_ = getattr(self, "sym_streak", {})
                 st_[sym_h] = st_.get(sym_h, 0) + 1 if h.get("profit", 0) < 0 else 0

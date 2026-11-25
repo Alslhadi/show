@@ -107,6 +107,24 @@ async def lifespan(app: FastAPI):
                     print("MODELS_ERROR", e, flush=True)
             await asyncio.sleep(1800)
     models_task = asyncio.create_task(model_loop())
+
+    async def sniper_bt():
+        await asyncio.sleep(40)
+        from . import sniper as SN
+        for sym in [x.strip() for x in settings.sniper_symbols.split(",") if x.strip()]:
+            for tf in ("M1", "M5"):
+                try:
+                    def run(sym=sym, tf=tf):
+                        df = engine.history_candles(sym, tf, 3000)
+                        spec, t = engine.broker.spec(sym), engine.broker.tick(sym)
+                        vol0 = float(df["tick_volume"].abs().sum()) if "tick_volume" in df else 0.0
+                        r = SN.backtest(df, spec.tick_size, t["ask"] - t["bid"], spec.tick_value / spec.tick_size)
+                        r["broker_volume"] = vol0 > 0
+                        return r
+                    print("SNIPER_BT", sym, tf, json.dumps(await asyncio.to_thread(run)), flush=True)
+                except Exception as e:
+                    print("SNIPER_BT_ERROR", sym, tf, e, flush=True)
+    sniper_task = asyncio.create_task(sniper_bt())
     if settings.exn_api_key and settings.exn_private_key and settings.data_source.upper() != "EXNESS":
         async def startup_check():
             r = await asyncio.to_thread(exness_test)
