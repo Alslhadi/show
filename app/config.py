@@ -67,7 +67,7 @@ class Settings(BaseSettings):
     daily_max_loss_pct: float = 25.0
     weekly_max_loss_pct: float = 30.0
     max_drawdown_pct: float = 40.0
-    max_open_trades: int = 5
+    max_open_trades: int = 6
     max_trades_per_symbol: int = 3
     max_consecutive_losses: int = 8
     max_spread_to_sl_ratio: float = 0.20
@@ -91,19 +91,22 @@ class Settings(BaseSettings):
     meta_min_events: int = 60  # min labelled events before the model may trade
     meta_train_bars: int = 3000
     meta_retrain_hours: int = 12
-    scalp_risk_pct: float = 1.75  # stop = max($1, 1.75% of equity): size grows as the account grows  # stop per trade = this % of equity (grows with the account)
+    scalp_risk_pct: float = 0.0  # stop = max($1, 1.75% of equity): size grows as the account grows  # stop per trade = this % of equity (grows with the account)
     scalp_tp_mult: float = 2.0  # hard take profit = stop $ x this (capped by scalp_tp_cap_usd)
-    scalp_tp_usd: float = 1.0  # min hard TP
-    scalp_tp_cap_usd: float = 2.0  # never aim further than this: bank it
-    scalp_lock_start_usd: float = 0.30  # once a trade has been +$0.40 it can no longer close red
+    scalp_tp_usd: float = 1.0  # single trade: bank at +$1
+    scalp_tp_cap_usd: float = 1.0  # never aim further than this: bank it
+    scalp_lock_start_usd: float = 0.50  # once a trade has been +$0.40 it can no longer close red
     scalp_lock_keep: float = 0.6  # ...and keeps 60% of its best open profit (ratchet)
-    scalp_sl_usd: float = 1.0  # stop per trade in $ (user: lose $1 at most)
-    scalp_sl_cap_mult: float = 1.2  # if the minimum lot forces a wider stop than this x scalp_sl_usd, skip
+    scalp_sl_usd: float = 0.9  # stop per trade in $ (user: always under $1)
+    scalp_sl_cap_mult: float = 1.1  # if the minimum lot forces a wider stop than this x scalp_sl_usd, skip
     scalp_max_minutes: int = 20  # close a scalp that hasn't resolved
     scalp_cooldown_min: int = 0  # same-symbol pause after an entry
     scalp_loss_cooldown_min: int = 2  # same-symbol pause after a loss
     scalp_max_open: int = 6
     scalp_per_symbol: int = 3
+    basket_tp_usd: float = 2.0  # all open bot trades together reach +$2 -> close them all and bank
+    usd_group_max: int = 2  # EURUSD+GBPUSD move together: max 2 open in the same USD direction
+    fx_session_utc: str = "7-20"  # FX/gold scalps only in London+NY hours (UTC); BTC trades 24/7
     votes_min_agree: int = 10  # of 20 indicators on the setup TF must agree with the direction
     auto_resume_min: int = 45  # automatic limit stops (daily/drawdown/loss streak) pause this long, then resume with limits rebased; manual kill stays
     hourly_target_usd: float = 0.0  # replaced by the daily target  # user challenge: bank this per clock hour, then stop new entries till the next hour

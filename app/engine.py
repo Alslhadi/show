@@ -291,6 +291,7 @@ class Engine:
         A stop is only ever moved in the trade's favour, never widened."""
         now_utc = datetime.now(timezone.utc)
         weekend_close = settings.close_before_weekend and now_utc.weekday() == 4 and now_utc.hour >= 20
+        self._basket_take()
         for p in self.broker.positions():
             plan = self.plans.get(p["ticket"]) or self._adopt(p)
             if not plan:
@@ -389,6 +390,24 @@ class Engine:
             if (new_sl - plan["sl"]) * sgn > 0 and (px - new_sl) * sgn > 0:
                 if self.broker.modify(p["ticket"], new_sl, None).get("ok"):
                     plan["sl"] = new_sl
+
+    def _pnl_usd(self, p: dict) -> float:
+        spec = self.broker.spec(p["symbol"])
+        sgn = 1 if p["direction"] == "BUY" else -1
+        return (p["price_current"] - p["price_open"]) * sgn * spec.tick_value / spec.tick_size * p["volume"]
+
+    def _basket_take(self) -> None:
+        """User rule: bank small sums fast. If the bot's open scalps together are up >= basket_tp_usd, close them all."""
+        if settings.basket_tp_usd <= 0:
+            return
+        pos = [p for p in self.broker.positions() if (self.plans.get(p["ticket"]) or {}).get("scalp") and not self._is_tg(p)]
+        if len(pos) < 2:
+            return
+        tot = sum(self._pnl_usd(p) for p in pos)
+        if tot >= settings.basket_tp_usd:
+            for p in pos:
+                self.broker.close(p["ticket"], reason="basket take")
+            self.log("info", f"💰 حجز جماعي: {len(pos)} صفقات مجموعها +{tot:.2f}$ — إغلاق وفتح فرص جديدة")
 
     def train_models(self, symbols=None) -> dict:
         """Fit/refresh the meta-label model per symbol from the broker's own history. Persisted in kv."""
@@ -494,6 +513,17 @@ class Engine:
             per_sym = settings.scalp_per_symbol if card.get("strategy") == "SCALP" else 1
             if len(same) >= per_sym or len(pos) >= cap:
                 return
+            if card.get("strategy") == "SCALP":
+                if card["symbol"] != "BTCUSD":
+                    a_, b_ = (int(x) for x in settings.fx_session_utc.split("-"))
+                    if not (a_ <= datetime.now(timezone.utc).hour < b_):
+                        return  # thin hours: FX/gold spreads eat scalps
+                if card["symbol"] in ("EURUSD", "GBPUSD"):
+                    usd_dir = lambda sym, d: (1 if d == "BUY" else -1)  # both quote USD: BUY = short USD
+                    mine = usd_dir(card["symbol"], card["direction"])
+                    grp = [p for p in pos if p["symbol"] in ("EURUSD", "GBPUSD") and usd_dir(p["symbol"], p["direction"]) == mine]
+                    if len(grp) >= settings.usd_group_max:
+                        return
         elif prev and prev.get("grade") == card["grade"] and prev.get("direction") == card["direction"]:
             return  # same setup still standing; avoid duplicate orders
         wait = self.cooldown_until.get(key, 0) - time.time()
