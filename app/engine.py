@@ -619,8 +619,16 @@ class Engine:
                 self.log("warn", f"سجل الأداء: {e}")
         for h in fresh:
             risk_engine.record_result(h.get("profit", 0))
+            sym_h = h.get("symbol")
+            if sym_h:
+                st_ = getattr(self, "sym_streak", {})
+                st_[sym_h] = st_.get(sym_h, 0) + 1 if h.get("profit", 0) < 0 else 0
+                self.sym_streak = st_
             if h.get("profit", 0) < 0 and h.get("symbol"):
                 lc = settings.scalp_loss_cooldown_min if settings.strategy_mode.upper() == "SCALP" else settings.loss_cooldown_min
+                if self.sym_streak.get(h["symbol"], 0) >= 2:  # market is going against the read: step back properly
+                    lc = max(lc, 30)
+                    self.log("warn", f"{h['symbol']}: خسارتين ورا بعض — استراحة 30 دقيقة على هالزوج")
                 for ck in [k for k, sy, _ in settings.agent_keys if sy == h["symbol"]] + [h["symbol"]]:
                     self.cooldown_until[ck] = max(self.cooldown_until.get(ck, 0), time.time() + lc * 60)
         self.status.update(loop_ok=True, last_loop=today.timestamp(), error=None)
