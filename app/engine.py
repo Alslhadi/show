@@ -445,11 +445,11 @@ class Engine:
         risk = abs(px - sg["sl"])
         if (px - sg["sl"]) * sgn <= 0:
             return
-        budget = settings.scalp_sl_usd
+        budget = settings.sniper_max_loss_usd or settings.scalp_sl_usd
         lots = math.floor(budget / (risk * per) / spec.volume_step + 1e-9) * spec.volume_step
         lots = round(max(lots, spec.volume_min), 8)
         loss = lots * risk * per
-        if loss > budget * settings.scalp_sl_cap_mult:
+        if loss > budget * (1.05 if settings.sniper_max_loss_usd else settings.scalp_sl_cap_mult):
             self.log("info", f"القناص {sym}: الستوب يخاطر {loss:.2f}$ — أكبر من حدك، تخطي")
             return
         tp = px + sgn * P_RR() * risk

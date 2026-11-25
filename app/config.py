@@ -105,7 +105,8 @@ class Settings(BaseSettings):
     scalp_max_open: int = 6
     scalp_per_symbol: int = 3
     sniper_symbols: str = "BTCUSD"  # user's "BTC Smart Re-Entry Sniper" runs on these instead of the scalper
-    sniper_tf: str = "M1"
+    sniper_tf: str = "M5"  # backtest on Exness data: M5 PF 2.39 (12 trades) vs M1 PF 0.28 (7 trades)
+    sniper_max_loss_usd: float = 0.0  # 0 = use the scalper $ stop cap; set >0 to let the sniper use its own wider stop
     basket_tp_usd: float = 2.0  # all open bot trades together reach +$2 -> close them all and bank
     usd_group_max: int = 2  # EURUSD+GBPUSD move together: max 2 open in the same USD direction
     fx_session_utc: str = "7-20"  # FX/gold scalps only in London+NY hours (UTC); BTC trades 24/7
