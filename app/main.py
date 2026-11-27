@@ -125,6 +125,27 @@ async def lifespan(app: FastAPI):
                 except Exception as e:
                     print("SNIPER_BT_ERROR", sym, tf, e, flush=True)
     sniper_task = asyncio.create_task(sniper_bt())
+
+    async def btc_research():
+        await asyncio.sleep(60)
+        from . import research as RS
+        from . import storage
+        try:
+            def run():
+                frames = {tf: engine.history_candles("BTCUSD", tf, n) for tf, n in (("M5", 8000), ("M15", 6000), ("H1", 3000))}
+                t = engine.broker.tick("BTCUSD")
+                rows = RS.run(frames, t["ask"] - t["bid"])
+                info = {tf: [len(f), float(f["time"].iloc[0]), float(f["time"].iloc[-1])] for tf, f in frames.items()}
+                return rows, info, t["ask"] - t["bid"]
+            rows, info, spread = await asyncio.to_thread(run)
+            print("RESEARCH_DATA", json.dumps({"frames": info, "spread": spread}), flush=True)
+            for r in rows[:15]:
+                print("RESEARCH", json.dumps(r, default=str), flush=True)
+            print("RESEARCH_ROBUST_COUNT", sum(1 for r in rows if r["robust"]), "of", len(rows), flush=True)
+            await asyncio.to_thread(storage.kv_set, "research:btc", json.dumps(rows[:30], default=str))
+        except Exception as e:
+            print("RESEARCH_ERROR", repr(e), flush=True)
+    research_task = asyncio.create_task(btc_research())
     if settings.exn_api_key and settings.exn_private_key and settings.data_source.upper() != "EXNESS":
         async def startup_check():
             r = await asyncio.to_thread(exness_test)
