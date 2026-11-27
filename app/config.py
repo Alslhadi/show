@@ -116,7 +116,7 @@ class Settings(BaseSettings):
     daily_target_usd: float = 320.0  # net daily target (UAE day); when reached: close everything, stop till tomorrow
     bot_paused: bool = False
     # BTC mode (research-validated): H1 Donchian breakout + M5 RSI(2) dip; one position per leg
-    btc_legs: str = "H1:breakout:n=20,k=1.5,rr=2.0,lots=0.05;M5:meanrev:lo=5,k=2.5,rr=1.0,lots=0.03"
+    btc_legs: str = "BTCUSD:H1:breakout:n=20,k=1.0,rr=4.0,lots=0.05"
     btc_max_loss_usd: float = 7.5      # per trade at min lot; skip setups whose stop costs more
     btc_day_loss_usd: float = 15.0      # circuit breaker: realised loss today -> halt till next day
     btc_min_equity: float = 100.0    # starts only once the top-up lands
