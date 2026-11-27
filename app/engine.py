@@ -496,6 +496,7 @@ class Engine:
         from . import research as RS
         tf, strat, ps = leg.split(":")
         params = {k: float(v) for k, v in (x.split("=") for x in ps.split(","))}
+        want_lots = params.pop("lots", None)
         if "n" in params: params["n"] = int(params["n"])
         sym, tag = "BTCUSD", f"btc:{tf}:{strat}"
         mine = [p for p in self.broker.positions() if (self.plans.get(p["ticket"]) or {}).get("leg") == tag]
@@ -524,9 +525,9 @@ class Engine:
         e = d["close"].iat[i]
         risk = abs(e - sl0); sl = px - sgn * risk; tp = px + sgn * abs(tp0 - e)
         per = spec.tick_value / spec.tick_size
-        lots = spec.volume_min
+        lots = round(max(spec.volume_min, want_lots or spec.volume_min), 8)
         loss = lots * risk * per
-        if loss > settings.btc_max_loss_usd:
+        if loss > settings.btc_max_loss_usd * lots / spec.volume_min:
             self.log("info", f"BTC {tf} {strat}: الستوب {loss:.2f}$ أكبر من حد {settings.btc_max_loss_usd}$ — تخطي")
             return
         card.update(id=f"bx{int(time.time())}", grade="SNIPER", lots=lots, sl=round(sl, spec.digits),
