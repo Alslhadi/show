@@ -308,7 +308,7 @@ class Engine:
                 self.broker.close(p["ticket"], reason="weekend")
                 self.log("info", "إغلاق قبل نهاية الأسبوع", ticket=p["ticket"])
                 continue
-            if not plan.get("hybrid") and mkt_time - p["time_open"] > settings.max_hold_minutes * 60:
+            if not plan.get("hybrid") and not plan.get("leg") and mkt_time - p["time_open"] > settings.max_hold_minutes * 60:
                 self.broker.close(p["ticket"], reason="max hold")
                 self.log("info", "إغلاق: تجاوزت أقصى مدة", ticket=p["ticket"])
                 continue
@@ -464,7 +464,81 @@ class Engine:
             self.sn_state.setdefault(sym, {})["last_dir"] = sgn
             self.log("info", f"القناص {sym}: دخل {card['direction']} {lots} — وقف {loss:.2f}$، هدف 1.8R")
 
+    def _btc_gate(self) -> str | None:
+        """pre-trade-discipline-gate + drawdown-circuit-breaker (skills), applied to the bot's own BTC trades."""
+        if settings.bot_paused:
+            return "البوت موقف"
+        if self.daily_target_hit():
+            return "الهدف اليومي تحقق"
+        led = self.__dict__.setdefault("btc_ledger", [])
+        today = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 4 * 3600))
+        day_pl = sum(x["pl"] for x in led if x["day"] == today)
+        if day_pl <= -settings.btc_day_loss_usd:
+            return f"قاطع الخسارة اليومي ({day_pl:.2f}$)"
+        tail = led[-settings.btc_streak_n:]
+        if len(tail) == settings.btc_streak_n and all(x["pl"] < 0 for x in tail) and \
+                time.time() - tail[-1]["t"] < settings.btc_streak_cool_min * 60:
+            return f"تبريد بعد {settings.btc_streak_n} خسائر متتالية"
+        return None
+
+    def btc_record(self, pl: float) -> None:
+        led = self.__dict__.setdefault("btc_ledger", [])
+        led.append({"t": time.time(), "pl": pl, "day": time.strftime("%Y-%m-%d", time.gmtime(time.time() + 4 * 3600))})
+        del led[:-200]
+
+    def _btc_step(self, leg: str) -> None:
+        from . import research as RS
+        tf, strat, ps = leg.split(":")
+        params = {k: float(v) for k, v in (x.split("=") for x in ps.split(","))}
+        if "n" in params: params["n"] = int(params["n"])
+        sym, tag = "BTCUSD", f"btc:{tf}:{strat}"
+        mine = [p for p in self.broker.positions() if (self.plans.get(p["ticket"]) or {}).get("leg") == tag]
+        df = self.broker.candles(sym, tf, 400)
+        last = float(df["time"].iloc[-1])
+        if self.last_m5.get(tag) == last:
+            return
+        self.last_m5[tag] = last
+        d = RS._base(df.iloc[:-1])          # closed bars only
+        i = len(d) - 1
+        sig = next((x for x in RS.STRATS[strat][0](d, params) if x[0] == i), None)
+        why = self._btc_gate()
+        card = {"symbol": sym, "strategy": f"BTC-{tf}-{strat}", "grade": "BTC" if sig and not why and not mine else "NO_TRADE",
+                "score": 100 if sig else 0, "direction": ("BUY" if sig[1] > 0 else "SELL") if sig else None,
+                "created": time.time(), "headline": f"BTC {tf} {strat}: " + ("إشارة" if sig else "ينتظر"),
+                "gates_failed": [why] if why else []}
+        self.signals[f"{sym}:{tf}"] = card
+        if not sig or mine or why:
+            if sig and why:
+                self.log("info", f"BTC {tf} {strat}: إشارة مرفوضة — {why}")
+            return
+        _, sgn, _, sl0, tp0, _ = sig
+        spec = self.broker.spec(sym)
+        t = self.broker.tick(sym)
+        px = t["ask"] if sgn > 0 else t["bid"]
+        e = d["close"].iat[i]
+        risk = abs(e - sl0); sl = px - sgn * risk; tp = px + sgn * abs(tp0 - e)
+        per = spec.tick_value / spec.tick_size
+        lots = spec.volume_min
+        loss = lots * risk * per
+        if loss > settings.btc_max_loss_usd:
+            self.log("info", f"BTC {tf} {strat}: الستوب {loss:.2f}$ أكبر من حد {settings.btc_max_loss_usd}$ — تخطي")
+            return
+        card.update(id=f"bx{int(time.time())}", grade="SNIPER", lots=lots, sl=round(sl, spec.digits),
+                    tp1=px + sgn * 0.6 * risk, tp2=tp, tp3=round(tp, spec.digits), atr_setup=d["atr"].iat[i],
+                    risk={"risk_money": round(loss, 2)})
+        res = self.execute(card, "SNIPER")
+        if res.get("ok"):
+            plan = self.plans.get(res["ticket"])
+            if plan is not None:
+                tf_s = {"M5": 300, "M15": 900, "H1": 3600}[tf]
+                plan.update(sniper=True, scalp=False, risk=risk, be=False, atr=None, leg=tag,
+                            expire=time.time() + 96 * tf_s)
+            self.log("info", f"BTC {tf} {strat}: دخل {card['direction']} {lots} — وقف {loss:.2f}$، هدف {abs(tp-px)*per*lots:.2f}$")
+
     def _manage_sniper(self, p: dict, plan: dict, buy: bool, px: float) -> None:
+        if plan.get("expire") and time.time() > plan["expire"]:
+            self.broker.close(p["ticket"], reason="time exit")
+            return
         sgn = 1 if buy else -1
         ent, risk = plan["entry"], plan.get("risk") or abs(plan["entry"] - plan["sl"])
         if not plan.get("be") and (px - ent) * sgn >= 0.6 * risk:
@@ -686,6 +760,13 @@ class Engine:
         jobs = settings.agent_keys if hybrid else [(s_, s_, settings.tf_entry) for s_ in settings.symbol_list]
         snipe = {x.strip().upper() for x in settings.sniper_symbols.split(",") if x.strip()} \
             if settings.strategy_mode.upper() == "SCALP" else set()
+        if settings.strategy_mode.upper() == "BTC":
+            for leg in settings.btc_legs.split(";"):
+                try:
+                    self._btc_step(leg.strip())
+                except Exception as e:
+                    self.log("error", f"BTC {leg} فشل: {e}")
+            jobs, snipe = [], set()
         for sym in snipe:
             try:
                 self._sniper_step(sym)
@@ -717,6 +798,9 @@ class Engine:
                 self.log("warn", f"سجل الأداء: {e}")
         for h in fresh:
             risk_engine.record_result(h.get("profit", 0))
+            if settings.strategy_mode.upper() == "BTC" and h.get("symbol") == "BTCUSD":
+                self.btc_record(h.get("profit", 0))
+                self.log("info", f"BTC: صفقة أُغلقت {h.get('profit', 0):+.2f}$ (سجل اليوم)")
             sym_h = h.get("symbol")
             if sym_h and sym_h in getattr(self, "sn_state", {}):
                 from . import sniper as _SN

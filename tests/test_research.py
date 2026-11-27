@@ -17,3 +17,18 @@ def test_research_ranks_configs():
     rows = research.run({"M5": _df()}, spread=15.0)
     assert rows and {"strat", "pf", "n", "robust", "plateau"} <= set(rows[0])
     assert {r["strat"] for r in rows} == set(research.STRATS)
+
+
+def test_btc_mode_gate_and_step(monkeypatch):
+    from app.config import settings
+    from app.engine import Engine
+    from app.brokers.paper import PaperBroker
+    monkeypatch.setattr(settings, "bot_paused", False)
+    eng = Engine(PaperBroker(["BTCUSD"]))
+    assert eng._btc_gate() is None
+    eng.btc_record(-1.0); eng.btc_record(-1.0)
+    assert "تبريد" in eng._btc_gate()
+    eng.btc_ledger.clear(); eng.btc_record(-7.0)
+    assert "قاطع" in eng._btc_gate()
+    eng.btc_ledger.clear()
+    eng._btc_step("M5:meanrev:lo=5,k=2.5,rr=1.0")   # must not raise on paper data

@@ -96,11 +96,16 @@ STRATS = {
 }
 
 
+RISKS: list = []
+
+
 def simulate(d, sigs, cost, be_r=0.6, max_bars=96):
     """One position at a time; entry next bar (mkt at open; stop must trade through the trigger on the next bar).
     Same-bar SL/TP: assume SL first. BE: at +be_r R move stop to +0.1R. R is net of `cost` (price units)."""
     sigs = sorted(sigs, key=lambda x: x[0])
     H, L, O = d["high"].values, d["low"].values, d["open"].values
+    global RISKS
+    RISKS = []
     R, times, busy_until = [], [], -1
     n = len(d)
     for i, s, e, sl, tp, kind in sigs:
@@ -133,6 +138,7 @@ def simulate(d, sigs, cost, be_r=0.6, max_bars=96):
         if res is None:
             res = (d["close"].iat[k] - entry) * s
         R.append((res - cost) / risk)
+        RISKS.append(risk)
         times.append(i)
         busy_until = k
     return np.array(R), np.array(times)
@@ -163,11 +169,13 @@ def run(frames: dict, spread: float) -> list[dict]:
                 p = dict(zip(keys, combo))
                 sigs = [x for x in fn(d, p) if x[0] > 200]
                 R, t = simulate(d, sigs, cost=1.5 * spread)
+                avg_risk = float(np.mean(RISKS)) if RISKS else 0.0
                 R2, _ = simulate(d, sigs, cost=2.5 * spread)
                 m, m2 = metrics(R), metrics(R2)
                 w = [R[(t >= 200 + q * (n - 200) // 4) & (t < 200 + (q + 1) * (n - 200) // 4)] for q in range(4)]
                 pos_w = sum(1 for x in w if len(x) and x.sum() > 0)
-                res[combo] = dict(tf=tf, strat=name, params=p, **m, pf_stress=m2["pf"], exp_stress=m2["exp"], win_q=pos_w)
+                res[combo] = dict(tf=tf, strat=name, params=p, **m, pf_stress=m2["pf"], exp_stress=m2["exp"], win_q=pos_w, stop_px=round(avg_risk, 1),
+                                   days=round((d["time"].iat[-1] - d["time"].iat[200]) / 86400, 1))
             # plateau: neighbours (one param one step away) must also be profitable
             for combo, r in res.items():
                 nb = []

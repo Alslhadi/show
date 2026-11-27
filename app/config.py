@@ -72,7 +72,7 @@ class Settings(BaseSettings):
     max_consecutive_losses: int = 8
     max_spread_to_sl_ratio: float = 0.20
     news_block_minutes: int = 15
-    strategy_mode: str = "SCALP"  # SMC = the original structure strategy (user-chosen); HYBRID = research-playbook agent; SCALP = fixed-$ micro trades; SMC = legacy
+    strategy_mode: str = "BTC"  # SMC = the original structure strategy (user-chosen); HYBRID = research-playbook agent; SCALP = fixed-$ micro trades; SMC = legacy
     # --- hybrid agent (regime -> primary signal -> meta-label p -> fractional Kelly; staged exits) ---
     hybrid_tf: str = "M15"
     hybrid_sl_atr: float = 1.5  # structural stop distance in ATR
@@ -114,7 +114,13 @@ class Settings(BaseSettings):
     auto_resume_min: int = 45  # automatic limit stops (daily/drawdown/loss streak) pause this long, then resume with limits rebased; manual kill stays
     hourly_target_usd: float = 0.0  # replaced by the daily target  # user challenge: bank this per clock hour, then stop new entries till the next hour
     daily_target_usd: float = 320.0  # net daily target (UAE day); when reached: close everything, stop till tomorrow
-    bot_paused: bool = True  # user-requested rebuild: the bot opens nothing new (open trades still managed)
+    bot_paused: bool = True
+    # BTC mode (research-validated): H1 Donchian breakout + M5 RSI(2) dip; one position per leg
+    btc_legs: str = "H1:breakout:n=20,k=1.5,rr=2.0;M5:meanrev:lo=5,k=2.5,rr=1.0"
+    btc_max_loss_usd: float = 4.0      # per trade at min lot; skip setups whose stop costs more
+    btc_day_loss_usd: float = 6.0      # circuit breaker: realised loss today -> halt till next day
+    btc_streak_n: int = 2              # losing streak -> cooldown
+    btc_streak_cool_min: int = 240  # user-requested rebuild: the bot opens nothing new (open trades still managed)
     profit_lock_enabled: bool = False  # the original strategy ran without it
     profit_lock_start_usd: float = 5.0  # once the day is up this much...
     profit_lock_keep_pct: float = 50.0  # ...keep at least this % of the day's best gain; below it, bot entries pause till tomorrow
