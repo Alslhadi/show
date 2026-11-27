@@ -508,6 +508,11 @@ class Engine:
         d = RS._base(df.iloc[:-1])          # closed bars only
         i = len(d) - 1
         sig = next((x for x in RS.STRATS[strat][0](d, params) if x[0] == i), None)
+        n_ = int(params.get("n", 20))
+        print("BTCDBG", tf, strat, json.dumps({"bar": float(d["time"].iat[i]), "close": round(float(d["close"].iat[i]), 1),
+              "e200": round(float(d["e200"].iat[i]), 1), "rsi2": round(float(d["rsi2"].iat[i]), 1),
+              "hi": round(float(d["high"].iloc[-n_-1:-1].max()), 1), "lo": round(float(d["low"].iloc[-n_-1:-1].min()), 1),
+              "atr": round(float(d["atr"].iat[i]), 1), "sig": bool(sig)}), flush=True)
         why = self._btc_gate()
         card = {"symbol": sym, "strategy": f"BTC-{tf}-{strat}", "grade": "BTC" if sig and not why and not mine else "NO_TRADE",
                 "score": 100 if sig else 0, "direction": ("BUY" if sig[1] > 0 else "SELL") if sig else None,
