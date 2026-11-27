@@ -499,6 +499,7 @@ class Engine:
         tf, strat, ps = parts
         params = {k: float(v) for k, v in (x.split("=") for x in ps.split(","))}
         want_lots = params.pop("lots", None)
+        cap = params.pop("cap", None)
         if "n" in params: params["n"] = int(params["n"])
         tag = f"btc:{sym}:{tf}:{strat}"
         if sym != "BTCUSD":
@@ -538,8 +539,8 @@ class Engine:
         per = spec.tick_value / spec.tick_size
         lots = round(max(spec.volume_min, want_lots or spec.volume_min), 8)
         loss = lots * risk * per
-        if loss > settings.btc_max_loss_usd * lots / spec.volume_min:
-            self.log("info", f"BTC {tf} {strat}: الستوب {loss:.2f}$ أكبر من حد {settings.btc_max_loss_usd}$ — تخطي")
+        if loss > (cap or settings.btc_max_loss_usd * lots / spec.volume_min):
+            self.log("info", f"BTC {tf} {strat}: الستوب {loss:.2f}$ أكبر من الحد — تخطي")
             return
         card.update(id=f"bx{int(time.time())}", grade="SNIPER", lots=lots, sl=round(sl, spec.digits),
                     tp1=px + sgn * 0.6 * risk, tp2=tp, tp3=round(tp, spec.digits), atr_setup=d["atr"].iat[i],
