@@ -494,11 +494,17 @@ class Engine:
 
     def _btc_step(self, leg: str) -> None:
         from . import research as RS
-        tf, strat, ps = leg.split(":")
+        parts = leg.split(":")
+        sym = parts.pop(0) if len(parts) == 4 else "BTCUSD"
+        tf, strat, ps = parts
         params = {k: float(v) for k, v in (x.split("=") for x in ps.split(","))}
         want_lots = params.pop("lots", None)
         if "n" in params: params["n"] = int(params["n"])
-        sym, tag = "BTCUSD", f"btc:{tf}:{strat}"
+        tag = f"btc:{sym}:{tf}:{strat}"
+        if sym != "BTCUSD":
+            from .main_hours import fx_market_open
+            if not fx_market_open():
+                return
         mine = [p for p in self.broker.positions() if (self.plans.get(p["ticket"]) or {}).get("leg") == tag]
         df = self.broker.candles(sym, tf, 400)
         last = float(df["time"].iloc[-1])
@@ -542,7 +548,7 @@ class Engine:
         if res.get("ok"):
             plan = self.plans.get(res["ticket"])
             if plan is not None:
-                tf_s = {"M5": 300, "M15": 900, "H1": 3600}[tf]
+                tf_s = {"M5": 300, "M15": 900, "H1": 3600, "H4": 14400}[tf]
                 plan.update(sniper=True, scalp=False, risk=risk, be=False, atr=None, leg=tag,
                             expire=time.time() + 96 * tf_s)
             self.log("info", f"BTC {tf} {strat}: دخل {card['direction']} {lots} — وقف {loss:.2f}$، هدف {abs(tp-px)*per*lots:.2f}$")

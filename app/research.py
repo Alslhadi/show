@@ -91,7 +91,7 @@ def sig_meanrev(d, p):
 STRATS = {
     "sniper": (sig_sniper, {"look": [20, 30], "vm": [1.3, 1.6, 2.0], "rr": [1.5, 1.8, 2.2]}),
     "pullback": (sig_pullback, {"tol": [0.1, 0.3], "sw": [5, 10], "rr": [1.5, 2.0, 2.5]}),
-    "breakout": (sig_breakout, {"n": [20, 40], "k": [1.5, 2.0], "rr": [1.5, 2.0, 3.0]}),
+    "breakout": (sig_breakout, {"n": [20, 40], "k": [1.0, 1.5, 2.0], "rr": [2.0, 3.0, 4.0]}),
     "meanrev": (sig_meanrev, {"lo": [5, 10], "k": [1.5, 2.5], "rr": [1.0, 1.5, 2.0]}),
 }
 

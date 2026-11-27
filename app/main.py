@@ -132,15 +132,26 @@ async def lifespan(app: FastAPI):
         from . import storage
         try:
             def run():
-                frames = {tf: engine.history_candles("BTCUSD", tf, n) for tf, n in (("M5", 8000), ("M15", 6000), ("H1", 3000))}
-                t = engine.broker.tick("BTCUSD")
-                rows = RS.run(frames, t["ask"] - t["bid"])
-                info = {tf: [len(f), float(f["time"].iloc[0]), float(f["time"].iloc[-1])] for tf, f in frames.items()}
-                return rows, info, t["ask"] - t["bid"]
+                allrows, meta = [], {}
+                for sym, plan in (("BTCUSD", (("H1", 3000), ("H4", 1500), ("M5", 8000))), ("XAUUSD", (("H1", 3000), ("H4", 1500)))):
+                    try:
+                        frames = {tf: engine.history_candles(sym, tf, n) for tf, n in plan}
+                        t = engine.broker.tick(sym); spec = engine.broker.spec(sym)
+                        rows = RS.run(frames, t["ask"] - t["bid"])
+                        for r in rows:
+                            r["sym"] = sym
+                            r["stop_usd_001"] = round(r.get("stop_px", 0) * spec.tick_value / spec.tick_size * 0.01, 2)
+                        allrows += rows
+                        meta[sym] = {tf: len(f) for tf, f in frames.items()}
+                    except Exception as e:
+                        meta[sym] = repr(e)
+                allrows.sort(key=lambda r: (r["robust"], r["exp_stress"] * (r["n"] ** 0.5)), reverse=True)
+                return allrows, meta, 0
             rows, info, spread = await asyncio.to_thread(run)
-            print("RESEARCH_DATA", json.dumps({"frames": info, "spread": spread}), flush=True)
-            for r in rows[:15]:
-                print("RESEARCH", json.dumps(r, default=str), flush=True)
+            print("RESEARCH_DATA", json.dumps({"frames": info}), flush=True)
+            for sym in ("BTCUSD", "XAUUSD"):
+                for r in [r for r in rows if r["sym"] == sym][:10]:
+                    print("RESEARCH", json.dumps(r, default=str), flush=True)
             print("RESEARCH_ROBUST_COUNT", sum(1 for r in rows if r["robust"]), "of", len(rows), flush=True)
             await asyncio.to_thread(storage.kv_set, "research:btc", json.dumps(rows[:30], default=str))
         except Exception as e:
