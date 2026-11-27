@@ -29,7 +29,7 @@ def test_btc_mode_gate_and_step(monkeypatch):
     assert eng._btc_gate() is None
     eng.btc_record(-1.0); eng.btc_record(-1.0)
     assert "تبريد" in eng._btc_gate()
-    eng.btc_ledger.clear(); eng.btc_record(-7.0)
+    eng.btc_ledger.clear(); eng.btc_record(-13.0)
     assert "قاطع" in eng._btc_gate()
     eng.btc_ledger.clear()
     eng._btc_step("M5:meanrev:lo=5,k=2.5,rr=1.0")   # must not raise on paper data
