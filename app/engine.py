@@ -426,7 +426,7 @@ class Engine:
         for c in ("shadow", "cooldown"):
             if st.get(c, 0) > 0:
                 st[c] -= 1
-        if mine or self.daily_target_hit():
+        if mine or self.daily_target_hit() or settings.bot_paused:
             return
         d = SN.prepare(df)
         sig = SN.signal_at(d, len(d) - 1, st, spec.tick_size)
@@ -577,6 +577,8 @@ class Engine:
         key = card.get("key") or card["symbol"]
         prev = self.signals.get(key)
         self.signals[key] = card
+        if settings.bot_paused:
+            return
         if card["grade"] == "NO_TRADE":
             return
         scalp = card.get("strategy") in ("SCALP", "HYBRID")

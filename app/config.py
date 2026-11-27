@@ -114,6 +114,7 @@ class Settings(BaseSettings):
     auto_resume_min: int = 45  # automatic limit stops (daily/drawdown/loss streak) pause this long, then resume with limits rebased; manual kill stays
     hourly_target_usd: float = 0.0  # replaced by the daily target  # user challenge: bank this per clock hour, then stop new entries till the next hour
     daily_target_usd: float = 320.0  # net daily target (UAE day); when reached: close everything, stop till tomorrow
+    bot_paused: bool = True  # user-requested rebuild: the bot opens nothing new (open trades still managed)
     profit_lock_enabled: bool = False  # the original strategy ran without it
     profit_lock_start_usd: float = 5.0  # once the day is up this much...
     profit_lock_keep_pct: float = 50.0  # ...keep at least this % of the day's best gain; below it, bot entries pause till tomorrow
