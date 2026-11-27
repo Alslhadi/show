@@ -470,6 +470,12 @@ class Engine:
             return "البوت موقف"
         if self.daily_target_hit():
             return "الهدف اليومي تحقق"
+        try:
+            eq = self.broker.account().equity
+        except Exception:
+            eq = 0.0
+        if eq < settings.btc_min_equity:
+            return f"ينتظر التعبئة (الرصيد {eq:.2f}$ < {settings.btc_min_equity:.0f}$)"
         led = self.__dict__.setdefault("btc_ledger", [])
         today = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 4 * 3600))
         day_pl = sum(x["pl"] for x in led if x["day"] == today)

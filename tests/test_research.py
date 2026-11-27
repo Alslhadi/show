@@ -24,6 +24,7 @@ def test_btc_mode_gate_and_step(monkeypatch):
     from app.engine import Engine
     from app.brokers.paper import PaperBroker
     monkeypatch.setattr(settings, "bot_paused", False)
+    monkeypatch.setattr(settings, "btc_min_equity", 0.0)
     eng = Engine(PaperBroker(["BTCUSD"]))
     assert eng._btc_gate() is None
     eng.btc_record(-1.0); eng.btc_record(-1.0)

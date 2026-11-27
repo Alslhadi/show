@@ -114,11 +114,12 @@ class Settings(BaseSettings):
     auto_resume_min: int = 45  # automatic limit stops (daily/drawdown/loss streak) pause this long, then resume with limits rebased; manual kill stays
     hourly_target_usd: float = 0.0  # replaced by the daily target  # user challenge: bank this per clock hour, then stop new entries till the next hour
     daily_target_usd: float = 320.0  # net daily target (UAE day); when reached: close everything, stop till tomorrow
-    bot_paused: bool = True
+    bot_paused: bool = False
     # BTC mode (research-validated): H1 Donchian breakout + M5 RSI(2) dip; one position per leg
     btc_legs: str = "H1:breakout:n=20,k=1.5,rr=2.0;M5:meanrev:lo=5,k=2.5,rr=1.0"
-    btc_max_loss_usd: float = 4.0      # per trade at min lot; skip setups whose stop costs more
-    btc_day_loss_usd: float = 6.0      # circuit breaker: realised loss today -> halt till next day
+    btc_max_loss_usd: float = 7.5      # per trade at min lot; skip setups whose stop costs more
+    btc_day_loss_usd: float = 12.0      # circuit breaker: realised loss today -> halt till next day
+    btc_min_equity: float = 100.0    # starts only once the top-up lands
     btc_streak_n: int = 2              # losing streak -> cooldown
     btc_streak_cool_min: int = 240  # user-requested rebuild: the bot opens nothing new (open trades still managed)
     profit_lock_enabled: bool = False  # the original strategy ran without it
