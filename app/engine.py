@@ -243,7 +243,7 @@ class Engine:
                                     lots=card["lots"], spec=spec, acc=acc, open_positions=group,
                                     spread=t["ask"] - t["bid"], margin_required=margin,
                                     per_symbol_limit=settings.tg_max_per_symbol if tg else None,
-                                    max_risk_pct=settings.tg_minlot_max_risk_pct if tg else None)
+                                    max_risk_pct=card.get("max_risk_pct") or (settings.tg_minlot_max_risk_pct if tg else None))
         if errs:
             self.log("warn", "محرك المخاطر رفض الأمر", symbol=sym, errors=errs)
             return {"ok": False, "message": "؛ ".join(errs)}
@@ -545,6 +545,11 @@ class Engine:
         card.update(id=f"bx{int(time.time())}", grade="SNIPER", lots=lots, sl=round(sl, spec.digits),
                     tp1=px + sgn * 0.6 * risk, tp2=tp, tp3=round(tp, spec.digits), atr_setup=d["atr"].iat[i],
                     risk={"risk_money": round(loss, 2)})
+        try:
+            eq = self.broker.account().equity or 1.0
+        except Exception:
+            eq = 1.0
+        card["max_risk_pct"] = loss / eq * 100 + 1.0   # the leg's own $ cap already bounds this
         res = self.execute(card, "SNIPER")
         if res.get("ok"):
             plan = self.plans.get(res["ticket"])
